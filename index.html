@@ -2,6 +2,7 @@
 <html lang="ru">
 <head>
 <meta charset="utf-8">
+<meta name="referrer" content="no-referrer">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Русское ТВ</title>
 <script src="https://telegram.org/js/telegram-web-app.js"></script>
@@ -29,10 +30,10 @@
 </head>
 <body>
 <div class="player">
-  <video id="v" controls playsinline autoplay></video>
+  <video id="v" controls playsinline autoplay referrerpolicy="no-referrer"></video>
   <div class="now" id="now">Выбери канал</div>
 </div>
-<p class="hint">Нажми на канал: он запустит первую ссылку, а если не пойдёт, сам попробует следующую. Зелёная кнопка — ссылка работает, красная — нет. Ссылки с пометкой http Telegram обычно блокирует.</p>
+<p class="hint">Нажми на канал: он запустит первую ссылку, а если не пойдёт, сам попробует следующую. Зелёная кнопка — ссылка работает, красная — нет. Ссылки с пометкой http Telegram обычно блокирует. <b>Версия 2</b></p>
 <div class="list" id="list"></div>
 
 <script>
@@ -127,7 +128,7 @@ function play(ci, si, autoNext) {
     now.innerHTML = '<b>' + ch.name + '</b>: идёт, ссылка ' + (si + 1) + (video.muted ? ' — включи звук в плеере' : '');
   };
   const start = () => video.play().catch(() => { video.muted = true; video.play().catch(() => {}); });
-  timer = setTimeout(() => fail('нет ответа 15 сек'), 15000);
+  timer = setTimeout(() => fail('нет ответа 20 сек'), 20000);
   video.onplaying = ok;
   video.onerror = () => fail('ошибка плеера');
 
