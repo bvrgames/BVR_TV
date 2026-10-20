@@ -4,36 +4,40 @@
 <meta charset="utf-8">
 <meta name="referrer" content="no-referrer">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>Русское ТВ</title>
+<title>rus tv</title>
 <script src="https://telegram.org/js/telegram-web-app.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/hls.js/1.5.13/hls.min.js"></script>
 <style>
-  :root { --bg:#111; --card:#1c1c1e; --text:#f2f2f2; --muted:#9a9a9f; --accent:#2f80ed; --ok:#2ecc71; --bad:#e74c3c; }
-  * { box-sizing:border-box; }
-  body { margin:0; background:var(--bg); color:var(--text); font:15px/1.4 -apple-system,system-ui,sans-serif; }
-  .player { position:sticky; top:0; background:#000; z-index:2; }
+  :root { --bg:#12001a; --card:rgba(255,255,255,.07); --card2:rgba(255,255,255,.10); --text:#fff; --muted:#b9a6c4; --accent:#437fd6; --red:#b72c2c; --ok:#2ecc71; --bad:#b72c2c; }
+  * { box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
+  html { background:#000; }
+  body { margin:0; min-height:100vh; color:var(--text); font:15px/1.4 -apple-system,system-ui,sans-serif;
+    background: radial-gradient(ellipse at 50% 40%, #4a0650 0%, #2a0034 45%, #0a0010 100%) fixed; }
+  header { display:flex; align-items:center; justify-content:center; padding:14px 16px 10px; }
+  header img { height:34px; width:auto; display:block; }
+  .player { position:sticky; top:0; background:#000; z-index:2; box-shadow:0 8px 24px rgba(0,0,0,.5); }
   video { width:100%; aspect-ratio:16/9; display:block; background:#000; }
   .now { padding:8px 16px; font-size:13px; color:var(--muted); background:#000; min-height:34px; }
   .now b { color:var(--text); }
   .list { padding:12px 16px 32px; display:grid; gap:10px; }
-  .ch { background:var(--card); border-radius:12px; padding:12px; }
-  .ch.active { outline:2px solid var(--accent); }
+  .ch { background:var(--card); border:1px solid rgba(255,255,255,.08); border-radius:14px; padding:12px; }
+  .ch.active { border-color:var(--accent); box-shadow:0 0 0 1px var(--accent); }
   .ch h3 { margin:0 0 8px; font-size:17px; }
   .src { display:flex; flex-wrap:wrap; gap:6px; }
-  .src button { border:0; border-radius:8px; padding:7px 10px; font-size:13px; background:#2c2c2e; color:var(--text); }
-  .src button.http { color:var(--muted); }
-  .src button.ok { background:var(--ok); color:#000; }
+  .src button { border:0; border-radius:9px; padding:7px 10px; font-size:13px; background:var(--card2); color:var(--text); }
+  .src button.ok { background:var(--ok); color:#06210f; }
   .src button.bad { background:var(--bad); }
   .src button.playing { outline:2px solid #fff; }
-  .hint { font-size:12px; color:var(--muted); padding:0 16px; }
+  .hint { font-size:12px; color:var(--muted); padding:4px 16px 0; margin:0; }
 </style>
 </head>
 <body>
+<header><img src="logo.svg" alt="rus tv"></header>
 <div class="player">
   <video id="v" controls playsinline autoplay referrerpolicy="no-referrer"></video>
   <div class="now" id="now">Выбери канал</div>
 </div>
-<p class="hint">Нажми на канал: он запустит первую ссылку, а если не пойдёт, сам попробует следующую. Зелёная кнопка — ссылка работает, красная — нет. <b>Версия 6</b></p>
+<p class="hint">Нажми на канал: он запустит первую ссылку, а если не пойдёт, сам попробует следующую. Зелёная кнопка — ссылка работает, красная — нет. <b>Версия 7</b></p>
 <div class="list" id="list"></div>
 
 <script>
