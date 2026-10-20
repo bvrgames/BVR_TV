@@ -33,7 +33,7 @@
   <video id="v" controls playsinline autoplay referrerpolicy="no-referrer"></video>
   <div class="now" id="now">Выбери канал</div>
 </div>
-<p class="hint">Нажми на канал: он запустит первую ссылку, а если не пойдёт, сам попробует следующую. Зелёная кнопка — ссылка работает, красная — нет. <b>Версия 5</b></p>
+<p class="hint">Нажми на канал: он запустит первую ссылку, а если не пойдёт, сам попробует следующую. Зелёная кнопка — ссылка работает, красная — нет. <b>Версия 6</b></p>
 <div class="list" id="list"></div>
 
 <script>
@@ -57,10 +57,10 @@ const CHANNELS = [
     viaProxy("http://109.207.243.18/2/index.m3u8"),
   ]},
   { name: "НТВ", sources: [
-    "https://cdn.ntv.ru/ntv-msk_hd/index.m3u8",
     "https://cdn-dvr.ntv.ru/ntv0_hd/index.m3u8",
     "https://cdn.ntv.ru/ntv0/index.m3u8",
     "https://bl.rutube.ru/livestream/c37cd74192c6bc3d6cd6077c0c4fd686/index.m3u8?e=2077050299&s=HSWg81JrQ3OqmwuWkEIDAQ&scheme=https",
+    "https://cdn.ntv.ru/ntv-msk_hd/index.m3u8",
   ]},
   { name: "СТС", sources: [
     viaProxy("http://stream.mcquack.net/138/index.m3u8"),
@@ -81,7 +81,7 @@ const video = document.getElementById('v');
 const now = document.getElementById('now');
 const list = document.getElementById('list');
 const nativeHls = video.canPlayType('application/vnd.apple.mpegurl');
-let hls = null, timer = null, attempt = 0;
+let hls = null, timer = null, watch = null, attempt = 0;
 
 CHANNELS.forEach((ch, ci) => {
   const card = document.createElement('div');
@@ -106,7 +106,7 @@ function mark(ci, si, cls) {
 }
 
 function stop() {
-  clearTimeout(timer);
+  clearTimeout(timer); clearInterval(watch);
   if (hls) { hls.destroy(); hls = null; }
   video.removeAttribute('src'); video.load();
 }
@@ -123,7 +123,7 @@ function play(ci, si, autoNext) {
   now.innerHTML = '<b>' + ch.name + '</b>: подключаюсь к ссылке ' + (si + 1) + '…';
 
   const url = ch.sources[si];
-  let done = false;
+  let done = false, played = false;
   const fail = (why) => {
     if (done || my !== attempt) return; done = true;
     mark(ci, si, 'bad');
@@ -132,17 +132,34 @@ function play(ci, si, autoNext) {
   };
   const ok = () => {
     if (done || my !== attempt) return; done = true;
-    clearTimeout(timer);
+    clearTimeout(timer); played = true;
     mark(ci, si, 'ok');
     now.innerHTML = '<b>' + ch.name + '</b>: идёт, ссылка ' + (si + 1) + (video.muted ? ' — включи звук в плеере' : '');
   };
   const start = () => video.play().catch(() => { video.muted = true; video.play().catch(() => {}); });
-  timer = setTimeout(() => {
-    if (video.readyState >= 2 || video.currentTime > 0) ok(); else fail('нет ответа 20 сек');
-  }, 20000);
-  video.onplaying = ok;
-  video.onloadeddata = ok;
-  video.ontimeupdate = () => { if (video.currentTime > 0) ok(); };
+  // Канал считается рабочим, только когда видео реально идёт (время двигается), а не просто показан кадр
+  let firstT = null;
+  timer = setTimeout(() => fail('видео не пошло за 20 сек'), 20000);
+  video.onplaying = null;
+  video.onloadeddata = null;
+  video.ontimeupdate = () => {
+    if (my !== attempt) return;
+    if (firstT === null) firstT = video.currentTime;
+    if (video.currentTime - firstT >= 1) ok();
+    lastMove = Date.now(); lastT = video.currentTime;
+  };
+  // Сторож: если уже шедшее видео застыло на 15 сек (а не стоит на паузе), переключаем на следующую ссылку
+  let lastMove = Date.now(), lastT = -1;
+  clearInterval(watch);
+  watch = setInterval(() => {
+    if (my !== attempt || !played || video.paused) { lastMove = Date.now(); return; }
+    if (Date.now() - lastMove > 15000) {
+      clearInterval(watch);
+      mark(ci, si, 'bad');
+      now.innerHTML = '<b>' + ch.name + '</b>: ссылка ' + (si + 1) + ' зависла, переключаю…';
+      play(ci, si + 1, true);
+    }
+  }, 3000);
   video.onerror = () => fail('ошибка плеера');
 
   if (nativeHls) {
