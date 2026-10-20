@@ -35,10 +35,13 @@
   .fsbtn .off { display:none; }
   html body.fs .fsbtn .on { display:none; } html body.fs .fsbtn .off { display:inline; }
   html body.fs { overflow:hidden; }
-  html body.fs .player { position:fixed; inset:0; z-index:50; display:flex; flex-direction:column; justify-content:center; }
+  html body.fs header, html body.fs .side, html body.fs::before { display:none; }
+  html body.fs .layout { display:block; height:auto; }
+  html body.fs .player { position:fixed; top:0; left:0; width:100vw; height:100vh; height:100dvh; z-index:1000;
+                         display:flex; flex-direction:column; background:#000; padding-top:var(--top-inset, 0px); }
   html body.fs .player .now { display:none; }
-  html body.fs .screen { flex:1; display:flex; }
-  html body.fs video { max-height:none; height:100%; aspect-ratio:auto; object-fit:contain; }
+  html body.fs .screen { flex:1; min-height:0; display:flex; }
+  html body.fs video { width:100%; max-height:none; height:100%; aspect-ratio:auto; object-fit:contain; }
   html body.fs .fsbtn { top:calc(10px + var(--top-inset, 0px)); }
   .player:fullscreen video { max-height:none; height:100%; }
   .now { display:flex; align-items:center; gap:8px; padding:10px 20px; min-height:42px;
@@ -99,7 +102,7 @@
 <div class="layout">
 <div class="player" id="player">
   <div class="screen">
-    <video id="v" controls playsinline autoplay referrerpolicy="no-referrer" controlslist="nofullscreen"></video>
+    <video id="v" controls playsinline autoplay referrerpolicy="no-referrer" controlslist="nofullscreen noremoteplayback" disablepictureinpicture poster="data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7"></video>
     <button class="fsbtn" id="fsBtn" aria-label="Во весь экран"><svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="#fff" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path class="on" d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/><path class="off" d="M9 4v5H4M15 4v5h5M9 20v-5H4M15 20v-5h5"/></svg></button>
   </div>
   <div class="now" id="nowBox"><span class="live">LIVE</span><span id="now">Выбери канал</span></div>
@@ -108,7 +111,7 @@
 <nav class="tabs" id="tabs"></nav>
 <p class="hint">Нажми на канал. Если источник не отвечает, приложение само попробует следующий — под плеером видно, что происходит. Зелёный кружок — источник работает, красный — нет.</p>
 <div id="lists"></div>
-<footer>версия 21</footer>
+<footer>версия 22</footer>
 </div>
 </div>
 
@@ -119,7 +122,7 @@
   upd(); addEventListener('resize', upd); addEventListener('orientationchange', () => setTimeout(upd, 300));
 })();
 // Telegram держит старую версию в кэше. Сверяем номер версии с сайтом и, если вышла новая, перезагружаемся один раз.
-const APP_VERSION = "21";
+const APP_VERSION = "22";
 (() => {
   fetch('version.txt?t=' + Date.now(), { cache: 'no-store' }).then(r => r.ok ? r.text() : '').then(v => {
     v = (v || '').trim();
@@ -475,8 +478,10 @@ showTab(sections[store.get('tab')] || store.get('tab') === 'Все' ? store.get(
   function enter() {
     if (isIOS && v.webkitEnterFullscreen) { try { v.webkitEnterFullscreen(); return; } catch (e) {} }
     document.body.classList.add('fs'); back(true);
+    // Внутри Telegram приложение и так на весь экран, системный режим там глючит — растягиваем плеер сами.
+    const inTG = !!(tg() && tg().initData);
     const req = pl.requestFullscreen || pl.webkitRequestFullscreen;
-    if (req && document.fullscreenEnabled !== false) { try { const p = req.call(pl); if (p && p.catch) p.catch(() => {}); } catch (e) {} }
+    if (!inTG && req && document.fullscreenEnabled !== false) { try { const p = req.call(pl); if (p && p.catch) p.catch(() => {}); } catch (e) {} }
     try { screen.orientation && screen.orientation.lock && screen.orientation.lock('landscape').catch(() => {}); } catch (e) {}
   }
   function exit() {
@@ -486,7 +491,8 @@ showTab(sections[store.get('tab')] || store.get('tab') === 'Все' ? store.get(
   }
   btn.onclick = (e) => { e.stopPropagation(); document.body.classList.contains('fs') ? exit() : enter(); };
   v.addEventListener('dblclick', () => (document.body.classList.contains('fs') ? exit() : enter()));
-  document.addEventListener('fullscreenchange', () => { if (!document.fullscreenElement && document.body.classList.contains('fs') && document.fullscreenEnabled) exit(); });
+  let wasNative = false;
+  document.addEventListener('fullscreenchange', () => { if (document.fullscreenElement) wasNative = true; else if (wasNative && document.body.classList.contains('fs')) { wasNative = false; exit(); } });
   document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && document.body.classList.contains('fs')) exit(); });
 })();
 
