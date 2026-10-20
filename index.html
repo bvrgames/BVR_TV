@@ -33,10 +33,13 @@
   <video id="v" controls playsinline autoplay referrerpolicy="no-referrer"></video>
   <div class="now" id="now">Выбери канал</div>
 </div>
-<p class="hint">Нажми на канал: он запустит первую ссылку, а если не пойдёт, сам попробует следующую. Зелёная кнопка — ссылка работает, красная — нет. <b>Версия 3</b></p>
+<p class="hint">Нажми на канал: он запустит первую ссылку, а если не пойдёт, сам попробует следующую. Зелёная кнопка — ссылка работает, красная — нет. <b>Версия 4</b></p>
 <div class="list" id="list"></div>
 
 <script>
+const PROXY = "https://rustv.bvrhockey.workers.dev/?u=";
+const viaProxy = (u) => PROXY + encodeURIComponent(u);
+
 const CHANNELS = [
   { name: "Первый", sources: [
     "https://streaming.thestream.cyou/live/210.m3u8",
@@ -54,11 +57,14 @@ const CHANNELS = [
     "https://bl.rutube.ru/livestream/c37cd74192c6bc3d6cd6077c0c4fd686/index.m3u8?e=2077050299&s=HSWg81JrQ3OqmwuWkEIDAQ&scheme=https",
   ]},
   { name: "СТС", sources: [
+    viaProxy("http://stream.mcquack.net/138/index.m3u8"),
+    viaProxy("http://ott-cdn.ucom.am/s52/04.m3u8"),
     "https://streaming.televizor-24-tochka.ru/live/296.m3u8",
   ]},
   { name: "ТНТ", sources: [
     "https://bl.rutube.ru/livestream/546602986e6a424d74d594876ddb3f04/index.m3u8?s=K-z3nz49R1oGQ-5yPSd8pg&e=2082157024&scheme=https",
     "https://streaming.televizor-24-tochka.ru/live/38.m3u8",
+    viaProxy("http://stream.mcquack.net/135/index.m3u8"),
   ]},
 ];
 
