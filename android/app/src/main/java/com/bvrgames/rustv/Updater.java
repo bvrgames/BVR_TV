@@ -34,14 +34,30 @@ final class Updater {
     private final OkHttpClient http;
     private final ExecutorService pool;
     private final Runnable onBeforeInstall;
+    private final Note note;
+    private volatile boolean manual;
+
+    /** Что показывать под кнопкой «Проверить обновления». */
+    interface Note { void show(String text); }
     private volatile boolean busy;
     private int readyVersion;
     private File readyFile;
     private boolean asked, waitingPermission;
 
-    Updater(Activity a, OkHttpClient http, ExecutorService pool, Runnable onBeforeInstall) {
-        this.a = a; this.http = http; this.pool = pool; this.onBeforeInstall = onBeforeInstall;
+    Updater(Activity a, OkHttpClient http, ExecutorService pool, Runnable onBeforeInstall, Note note) {
+        this.a = a; this.http = http; this.pool = pool; this.onBeforeInstall = onBeforeInstall; this.note = note;
     }
+
+    /** Кнопка «Проверить обновления». */
+    void checkNow() {
+        if (readyFile != null) { asked = false; offer(); return; }
+        if (busy) return;
+        manual = true;
+        note.show("Проверяю…");
+        check();
+    }
+
+    private void say(String s) { a.runOnUiThread(() -> note.show(s)); }
 
     /** Проверить GitHub и, если есть новая версия, скачать её в фоне. */
     void check() {
@@ -50,25 +66,28 @@ final class Updater {
         pool.execute(() -> {
             try {
                 String info = text(BASE + "tv-version.txt");
-                if (info == null) return;
+                if (info == null) { if (manual) say("Нет связи с GitHub, попробуй позже"); return; }
                 String[] p = info.trim().split("\\s+");
                 int ver = Integer.parseInt(p[0]);
                 String sha = p.length > 1 ? p[1].toLowerCase() : null;
-                if (ver <= BuildConfig.VERSION_CODE) return;
+                if (ver <= BuildConfig.VERSION_CODE) { if (manual) say("У тебя последняя версия " + BuildConfig.VERSION_NAME); return; }
+                say("Скачиваю версию 1." + ver + "…");
                 File f = new File(a.getCacheDir(), "update-" + ver + ".apk");
                 if (!(f.exists() && sha != null && sha.equals(sha256(f)))) {
                     File tmp = new File(a.getCacheDir(), "update.part");
-                    if (!download(BASE + "rus-tv.apk", tmp)) return;
-                    if (sha != null && !sha.equals(sha256(tmp))) { tmp.delete(); return; }
+                    if (!download(BASE + "rus-tv.apk", tmp)) { say("Не скачалось, нажми ещё раз"); return; }
+                    if (sha != null && !sha.equals(sha256(tmp))) { tmp.delete(); say("Скачалось с ошибкой, нажми ещё раз"); return; }
                     File[] old = a.getCacheDir().listFiles((d, n) -> n.startsWith("update-"));
                     if (old != null) for (File o : old) o.delete();
                     if (!tmp.renameTo(f)) return;
                 }
                 final int v = ver;
-                a.runOnUiThread(() -> { readyVersion = v; readyFile = f; offer(); });
-            } catch (Exception ignored) {
+                a.runOnUiThread(() -> { readyVersion = v; readyFile = f; note.show("Версия 1." + v + " готова — нажми, чтобы установить"); offer(); });
+            } catch (Exception e) {
+                if (manual) say("Не получилось проверить, попробуй позже");
             } finally {
                 busy = false;
+                manual = false;
             }
         });
     }

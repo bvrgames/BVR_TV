@@ -97,6 +97,8 @@ public class MainActivity extends Activity {
     private OkHttpClient http;
     private ExecutorService pool;
     private Updater updater;
+    private static final String UPDATE_ROW = new String("update");
+    private String updateNote = "Сейчас версия " + BuildConfig.VERSION_NAME;
 
     private List<Channels.Channel> channels = new ArrayList<>();
     private Bitmap logoSprite;
@@ -144,7 +146,10 @@ public class MainActivity extends Activity {
                 .retryOnConnectionFailure(true).followRedirects(true).followSslRedirects(true)
                 .build();
         pool = Executors.newFixedThreadPool(6);
-        updater = new Updater(this, http, pool, () -> { if (player != null) player.stop(); });
+        updater = new Updater(this, http, pool, () -> { if (player != null) player.stop(); }, note -> {
+            updateNote = note;
+            adapter.notifyDataSetChanged();
+        });
         buildUi();
         loadLocalData();
         refreshFromSite();
@@ -656,6 +661,7 @@ public class MainActivity extends Activity {
         list.setOnItemClickListener((p, v, position, id) -> {
             Object item = adapter.getItem(position);
             if (item instanceof Integer) { startChannel((Integer) item); hidePanel(); }
+            else if (item == UPDATE_ROW) { panelTimer(); updater.checkNow(); }
         });
         list.setOnScrollListener(new AbsListView.OnScrollListener() {
             @Override public void onScrollStateChanged(AbsListView v, int s) { panelTimer(); }
@@ -872,6 +878,7 @@ public class MainActivity extends Activity {
                     rows.add(i);
                 }
             }
+            rows.add(UPDATE_ROW);
             notifyDataSetChanged();
         }
 
@@ -880,15 +887,38 @@ public class MainActivity extends Activity {
         @Override public int getCount() { return rows.size(); }
         @Override public Object getItem(int p) { return rows.get(p); }
         @Override public long getItemId(int p) { return p; }
-        @Override public int getViewTypeCount() { return 2; }
-        @Override public int getItemViewType(int p) { return rows.get(p) instanceof String ? 0 : 1; }
+        @Override public int getViewTypeCount() { return 3; }
+        @Override public int getItemViewType(int p) { Object r = rows.get(p); return r == UPDATE_ROW ? 2 : r instanceof String ? 0 : 1; }
         @Override public boolean areAllItemsEnabled() { return false; }
-        @Override public boolean isEnabled(int p) { return rows.get(p) instanceof Integer; }
+        @Override public boolean isEnabled(int p) { return rows.get(p) instanceof Integer || rows.get(p) == UPDATE_ROW; }
 
         @Override
         public View getView(int p, View convert, ViewGroup parent) {
             Object row = rows.get(p);
-            if (row instanceof String) {
+            if (row == UPDATE_ROW) {
+                LinearLayout r = convert instanceof LinearLayout ? (LinearLayout) convert : null;
+                if (r == null) {
+                    r = new LinearLayout(MainActivity.this);
+                    r.setGravity(Gravity.CENTER_VERTICAL);
+                    r.setPadding(dp(8), dp(12), dp(12), dp(12));
+                    TextView icon = text(20, ACCENT, true);
+                    icon.setText("⟳");
+                    icon.setGravity(Gravity.CENTER);
+                    r.addView(icon, new LinearLayout.LayoutParams(dp(64), dp(40)));
+                    LinearLayout texts = new LinearLayout(MainActivity.this);
+                    texts.setOrientation(LinearLayout.VERTICAL);
+                    texts.addView(text(19, Color.WHITE, false));
+                    texts.addView(text(13, MUTED, false));
+                    LinearLayout.LayoutParams np = new LinearLayout.LayoutParams(0, -2, 1f);
+                    np.leftMargin = dp(14);
+                    r.addView(texts, np);
+                }
+                LinearLayout texts = (LinearLayout) r.getChildAt(1);
+                ((TextView) texts.getChildAt(0)).setText("Проверить обновления");
+                ((TextView) texts.getChildAt(1)).setText(updateNote);
+                return r;
+            }
+            if (row instanceof String && row != UPDATE_ROW) {
                 TextView t = convert instanceof TextView ? (TextView) convert : text(13, MUTED, false);
                 t.setText(((String) row).toUpperCase());
                 t.setPadding(dp(8), dp(p == 0 ? 4 : 18), 0, dp(6));
