@@ -53,6 +53,13 @@
   .dot.cur { box-shadow:0 0 0 2px var(--text); }
   .ch:not(.active) .dots { display:none; }
 
+  .tabs { display:flex; gap:8px; overflow-x:auto; padding:10px 16px; background:#000; border-bottom:.5px solid var(--sep);
+          scrollbar-width:none; -webkit-overflow-scrolling:touch; }
+  .tabs::-webkit-scrollbar { display:none; }
+  .tab { flex:none; border:0; border-radius:16px; padding:7px 14px; font:500 15px/1 -apple-system, system-ui, sans-serif;
+         color:var(--text); background:rgba(120,120,128,.24); }
+  .tab.on { background:#fff; color:#000; }
+  .sec[hidden] { display:none; }
   .hint { margin:14px 20px 0; font-size:13px; line-height:1.4; color:var(--muted); }
   footer { text-align:center; color:#48484a; font-size:12px; margin:24px 0 20px; }
 </style>
@@ -62,10 +69,11 @@
 <div class="player">
   <video id="v" controls playsinline autoplay referrerpolicy="no-referrer"></video>
   <div class="now" id="nowBox"><span class="live">LIVE</span><span id="now">Выбери канал</span></div>
+  <nav class="tabs" id="tabs"></nav>
 </div>
 <p class="hint">Нажми на канал. Если источник не отвечает, приложение само попробует следующий — внизу под плеером видно, что происходит. Зелёный кружок — источник работает, красный — нет.</p>
 <div id="lists"></div>
-<footer>версия 15</footer>
+<footer>версия 16</footer>
 
 <script>
 const PROXY = "https://rustv.bvrhockey.workers.dev/?u=";
@@ -357,11 +365,29 @@ CHANNELS.forEach((ch, ci) => {
     play(ci, Number.isInteger(saved) && saved < ch.sources.length ? saved : 0, true, 0);
   };
   if (!sections[ch.sec]) {
-    const t = document.createElement('h2'); t.textContent = ch.sec; lists.appendChild(t);
-    const l = document.createElement('div'); l.className = 'list'; lists.appendChild(l); sections[ch.sec] = l;
+    const wrap = document.createElement('div'); wrap.className = 'sec'; wrap.dataset.sec = ch.sec;
+    const t = document.createElement('h2'); t.textContent = ch.sec; wrap.appendChild(t);
+    const l = document.createElement('div'); l.className = 'list'; wrap.appendChild(l);
+    lists.appendChild(wrap); sections[ch.sec] = l;
   }
   sections[ch.sec].appendChild(row);
 });
+
+// Меню разделов: кнопки над списком, выбранный раздел запоминается
+const TAB_NAMES = { "Основные": "Основные", "Спорт": "Спорт", "Кино и сериалы": "Кино", "Развлечения и музыка": "Развлечения", "Детям": "Детям" };
+const tabsBox = document.getElementById('tabs');
+function showTab(sec) {
+  document.querySelectorAll('.sec').forEach(w => { w.hidden = !(sec === 'Все' || w.dataset.sec === sec); });
+  document.querySelectorAll('.tab').forEach(b => b.classList.toggle('on', b.dataset.sec === sec));
+  store.set('tab', sec);
+}
+['Все', ...Object.keys(sections)].forEach(sec => {
+  const b = document.createElement('button');
+  b.className = 'tab'; b.dataset.sec = sec; b.textContent = TAB_NAMES[sec] || sec;
+  b.onclick = () => { showTab(sec); window.scrollTo({ top: 0 }); };
+  tabsBox.appendChild(b);
+});
+showTab(sections[store.get('tab')] || store.get('tab') === 'Все' ? store.get('tab') : 'Основные');
 
 function mark(ci, si, cls) {
   const d = document.getElementById('d' + ci + '_' + si);
