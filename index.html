@@ -65,7 +65,7 @@
 </div>
 <p class="hint">Нажми на канал. Если источник не отвечает, приложение само попробует следующий — внизу под плеером видно, что происходит. Зелёный кружок — источник работает, красный — нет.</p>
 <div id="lists"></div>
-<footer>версия 12</footer>
+<footer>версия 13</footer>
 
 <script>
 const PROXY = "https://rustv.bvrhockey.workers.dev/?u=";
@@ -247,6 +247,10 @@ const CHANNELS = [
   { sec: "Кино и сериалы", name: "Русский детектив", short: "РД", color: "#2c3e50", sources: [
     viaProxy("http://stream.mcquack.net/204/index.m3u8"),
     viaProxy("http://31.148.48.15/Russkiy_Detektiv/index.m3u8"),
+  ]},
+  { sec: "Кино и сериалы", name: "Русский роман", short: "РР", color: "#b0315a", sources: [
+    "https://vod.tuva.ru/rusroman/index.m3u8",
+    viaProxy("http://stream.mcquack.net/266/index.m3u8"),
   ]},
   { sec: "Кино и сериалы", name: "Русский бестселлер", short: "РБ", color: "#34495e", sources: [
     viaProxy("http://stream.mcquack.net/208/index.m3u8"),
