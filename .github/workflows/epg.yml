@@ -1,0 +1,41 @@
+# Каждые 3 часа обновляет телепрограмму (epg.json) в ветке epg — приложение на ТВ берёт её оттуда
+name: Обновить телепрограмму
+
+on:
+  schedule:
+    - cron: "17 */3 * * *"
+  push:
+    branches: [main]
+    paths:
+      - tv/epg/**
+      - .github/workflows/epg.yml
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: epg
+  cancel-in-progress: true
+
+jobs:
+  epg:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - name: Собрать программу
+        run: |
+          mkdir -p "$RUNNER_TEMP/out" && cd "$RUNNER_TEMP/out"
+          python3 "$GITHUB_WORKSPACE/tv/epg/build_epg.py" "$GITHUB_WORKSPACE/index.html"
+          ls -la
+      - name: Выложить в ветку epg
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          cd "$RUNNER_TEMP/out"
+          git init -q && git checkout -q -b epg
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add epg.json report.txt && git commit -q -m "Телепрограмма $(date -u +%F\ %H:%M)"
+          git push -q -f "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" HEAD:epg
