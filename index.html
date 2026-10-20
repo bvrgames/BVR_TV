@@ -65,11 +65,13 @@
 </div>
 <p class="hint">Нажми на канал. Если источник не отвечает, приложение само попробует следующий — внизу под плеером видно, что происходит. Зелёный кружок — источник работает, красный — нет.</p>
 <div id="lists"></div>
-<footer>версия 14</footer>
+<footer>версия 15</footer>
 
 <script>
 const PROXY = "https://rustv.bvrhockey.workers.dev/?u=";
-const viaProxy = (u) => PROXY + encodeURIComponent(u);
+const viaProxy = (u, ref) => PROXY + encodeURIComponent(u) + (ref ? "&ref=" + encodeURIComponent(ref) : "");
+// Серверу televizor-24 нужен «паспорт» сайта, иначе он отдаёт поток медленно или не отдаёт вовсе
+const T24 = (u) => viaProxy(u, "https://televizor24tochka.ru/");
 
 // Ссылки идут по порядку: сначала напрямую, потом те же через прокси (выручает, когда домашний интернет режет поток)
 const CHANNELS = [
@@ -98,6 +100,7 @@ const CHANNELS = [
     "https://cdn.ntv.ru/ntv-msk_hd/index.m3u8",
   ]},
   { sec: "Основные", name: "СТС", short: "СТС", color: "#ff7a00", sources: [
+    T24("https://streaming.televizor-24-tochka.ru/live/296.m3u8"),
     "https://streaming.televizor-24-tochka.ru/live/296.m3u8",
     viaProxy("http://stream.mcquack.net/138/index.m3u8"),
     viaProxy("http://ott-cdn.ucom.am/s52/04.m3u8"),
@@ -106,15 +109,19 @@ const CHANNELS = [
   ]},
   { sec: "Основные", name: "ТНТ", short: "ТНТ", color: "#7b2ff7", sources: [
     "https://bl.rutube.ru/livestream/546602986e6a424d74d594876ddb3f04/index.m3u8?s=K-z3nz49R1oGQ-5yPSd8pg&e=2082157024&scheme=https",
+    T24("https://streaming.televizor-24-tochka.ru/live/38.m3u8"),
     "https://streaming.televizor-24-tochka.ru/live/38.m3u8",
     viaProxy("http://stream.mcquack.net/135/index.m3u8"),
   ]},
   { sec: "Основные", name: "Пятый", short: "5", color: "#e30613", sources: [
+    T24("https://streaming.televizor-24-tochka.ru/live/8.m3u8"),
     "https://streaming.televizor-24-tochka.ru/live/8.m3u8",
     viaProxy("http://31.148.5.241/kanal_5/index.m3u8"),
   ]},
   { sec: "Основные", name: "РЕН ТВ", short: "РЕН", color: "#3d3d3d", sources: [
+    T24("https://streaming.televizor-24-tochka.ru/live/14.m3u8"),
     "https://streaming.televizor-24-tochka.ru/live/14.m3u8",
+    viaProxy("http://31.148.5.241/kanal_11/index.m3u8"),
     viaProxy("http://31.148.48.15/REN-TV/index.m3u8"),
     viaProxy("http://185.23.80.23:8080/REN/index.m3u8"),
     viaProxy("http://45.145.32.13:20440/ren_tv/index.m3u8?token=test"),
@@ -123,6 +130,7 @@ const CHANNELS = [
   ]},
   { sec: "Основные", name: "ТВ-3", short: "ТВ3", color: "#5a2d82", sources: [
     viaProxy("http://stream.mcquack.net/136/index.m3u8"),
+    T24("https://streaming.televizor-24-tochka.ru/live/18.m3u8"),
     "https://streaming.televizor-24-tochka.ru/live/18.m3u8",
     "https://adesa.tv/live/tv3_AdesaAdb.m3u8",
     "https://customer-ezarl905qqr949qs.cloudflarestream.com/856e914abd09e036ce9ce4fa649278b2/manifest/video.m3u8",
@@ -131,6 +139,7 @@ const CHANNELS = [
   ]},
   { sec: "Основные", name: "Пятница!", short: "П!", color: "#f2a900", sources: [
     viaProxy("http://stream.mcquack.net/181/index.m3u8"),
+    T24("https://streaming.televizor-24-tochka.ru/live/19.m3u8"),
     "https://streaming.televizor-24-tochka.ru/live/19.m3u8",
     "https://vod.tuva.ru/friday/index.m3u8",
     viaProxy("http://31.148.48.15/Pyatnica/index.m3u8"),
@@ -143,6 +152,7 @@ const CHANNELS = [
   { sec: "Основные", name: "Звезда", short: "★", color: "#9b1b1b", sources: [
     "https://tvzvezda.bonus-tv.ru/cdn/tvzvezda/playlist.m3u8",
     "https://tvchannelstream1.tvzvezda.ru/cdn/tvzvezda/playlist.m3u8",
+    T24("https://streaming.televizor-24-tochka.ru/live/748.m3u8"),
     "https://streaming.televizor-24-tochka.ru/live/748.m3u8",
     viaProxy("http://51.158.144.33:2021/zvezda/index.m3u8"),
     viaProxy("http://flussonic.linkintel.ru/zvezda/index.m3u8"),
@@ -158,6 +168,7 @@ const CHANNELS = [
   ]},
   { sec: "Спорт", name: "Матч ТВ", short: "МАТЧ", color: "#e4002b", sources: [
     viaProxy("http://stream.mcquack.net/169/index.m3u8"),
+    T24("https://streaming.televizor-24-tochka.ru/live/6.m3u8"),
     "https://streaming.televizor-24-tochka.ru/live/6.m3u8",
     viaProxy("http://bl.video.matchtv.ru/media/playlist/free_d46d0cf1712c0542ec7fd4f0808f600a_hd/17_89756005/1080/e6bef86de8a133cd7b27deb040758a00/4796141934.m3u8"),
   ]},
@@ -248,6 +259,7 @@ const CHANNELS = [
     viaProxy("http://176.118.197.101/2x2/index.m3u8"),
   ]},
   { sec: "Развлечения и музыка", name: "Муз-ТВ", short: "МУЗ", color: "#e5007e", sources: [
+    T24("https://streaming.televizor-24-tochka.ru/live/618.m3u8"),
     "https://streaming.televizor-24-tochka.ru/live/618.m3u8",
     "https://streaming102.interskytech.com/live/618.m3u8",
     viaProxy("http://stream.mcquack.net/86/index.m3u8"),
@@ -268,6 +280,7 @@ const CHANNELS = [
   ]},
   { sec: "Детям", name: "Карусель", short: "КАР", color: "#f39c12", sources: [
     "https://stream.smotrim.ru/hls2/karusel/playlist_3.m3u8",
+    T24("https://streaming.televizor-24-tochka.ru/live/232.m3u8"),
     "https://streaming.televizor-24-tochka.ru/live/232.m3u8",
     "https://streaming102.interskytech.com/live/232.m3u8",
     viaProxy("http://stream.mcquack.net/120/index.m3u8"),
@@ -282,6 +295,13 @@ const CHANNELS = [
   ]},
   { sec: "Детям", name: "Nickelodeon", short: "nick", color: "#ff6f00", sources: [
     viaProxy("http://stream.mcquack.net/443/index.m3u8"),
+  ]},
+  { sec: "Детям", name: "Nick Jr.", short: "Jr.", color: "#00a6e0", sources: [
+    viaProxy("http://stream.mcquack.net/220/index.m3u8"),
+  ]},
+  { sec: "Детям", name: "Cartoon Network", short: "CN", color: "#111", sources: [
+    "https://bl.rutube.ru/livestream/d2119cfb95146b3983cf05c1fe35e66f/index.m3u8?s=SBAsUrxODR6nk6ktHKTpoQ&e=2090795468&scheme=https",
+    viaProxy("http://5.188.159.128:8070/Cartoon_Network/index.m3u8"),
   ]},
 ];
 
