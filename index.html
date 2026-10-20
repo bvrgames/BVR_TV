@@ -139,16 +139,16 @@
     <span class="chev">›</span>
   </summary>
   <ol>
-    <li>На телевизоре открой Google Play и установи <b>Downloader</b>.</li>
-    <li>В Downloader введи адрес:<br><span class="addr">rustv.bvrhockey.workers.dev/tv</span></li>
-    <li>Нажми «Установить». Если телевизор спросит — разреши установку.</li>
+    <li>Установи приложение <b>Send files to TV</b> из Google Play — и на телевизор, и на Android-телефон.</li>
+    <li>На телефоне нажми <b>«Скачать APK»</b> ниже — файл сохранится в «Загрузки».</li>
+    <li>Открой Send files to TV на обоих устройствах: на телевизоре нажми <b>«Получить»</b>, на телефоне — <b>«Отправить»</b> и выбери файл <b>rus-tv.apk</b>.</li>
+    <li>На телевизоре открой полученный файл и нажми <b>«Установить»</b>. Если телевизор спросит — разреши установку из этого источника.</li>
   </ol>
   <div class="btns">
-    <button id="tvCopy">Скопировать</button>
     <button class="main" id="tvApk">Скачать APK</button>
   </div>
 </details>
-<footer>версия 24</footer>
+<footer>версия 25</footer>
 </div>
 </div>
 
@@ -159,7 +159,7 @@
   upd(); addEventListener('resize', upd); addEventListener('orientationchange', () => setTimeout(upd, 300));
 })();
 // Telegram держит старую версию в кэше. Сверяем номер версии с сайтом и, если вышла новая, перезагружаемся один раз.
-const APP_VERSION = "24";
+const APP_VERSION = "25";
 (() => {
   fetch('version.txt?t=' + Date.now(), { cache: 'no-store' }).then(r => r.ok ? r.text() : '').then(v => {
     v = (v || '').trim();
@@ -642,16 +642,7 @@ async function play(ci, si, autoNext, tried = 0, retried = false) {
 
 // Карточка «rus tv для телевизора»
 (() => {
-  const ADDR = 'rustv.bvrhockey.workers.dev/tv', APK = 'https://github.com/bvrgames/BVR_TV/releases/download/tv/rus-tv.apk';
-  const copyBtn = document.getElementById('tvCopy');
-  copyBtn.onclick = () => {
-    const done = () => { copyBtn.textContent = 'Скопировано ✓'; setTimeout(() => copyBtn.textContent = 'Скопировать', 2000); };
-    if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(ADDR).then(done, fallback); else fallback();
-    function fallback() {
-      const t = document.createElement('textarea'); t.value = ADDR; document.body.appendChild(t); t.select();
-      try { document.execCommand('copy'); done(); } catch (e) {} t.remove();
-    }
-  };
+  const APK = 'https://github.com/bvrgames/BVR_TV/releases/download/tv/rus-tv.apk';
   document.getElementById('tvApk').onclick = () => {
     const w = window.Telegram && window.Telegram.WebApp;
     if (w && w.openLink && w.initData) w.openLink(APK); else location.href = APK;
