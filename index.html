@@ -18,10 +18,12 @@
          -webkit-font-smoothing:antialiased; padding-bottom:env(safe-area-inset-bottom); }
 
   /* Шапка: единственное фиолетовое место, как на аватарке */
-  header { position:relative; display:flex; justify-content:center; align-items:center; height:116px; background:#000; overflow:hidden; }
-  header::before { content:""; position:absolute; left:50%; top:50%; width:320px; height:150px; transform:translate(-50%,-50%);
-    background:radial-gradient(closest-side, rgba(130,12,140,.9) 0%, rgba(80,8,95,.55) 45%, rgba(35,0,45,.2) 75%, rgba(0,0,0,0) 100%); pointer-events:none; }
-  header img { position:relative; height:32px; width:auto; display:block; }
+  header { display:flex; justify-content:center; align-items:center; height:84px; background:#000; }
+  /* Круг свечения: размером примерно с логотип, по центру под ним */
+  .logo { position:relative; display:inline-block; }
+  .logo::before { content:""; position:absolute; left:50%; top:50%; width:80%; aspect-ratio:1; transform:translate(-50%,-50%);
+    border-radius:50%; background:radial-gradient(closest-side, rgba(140,14,150,.95) 0%, rgba(95,10,110,.6) 45%, rgba(45,0,60,.25) 75%, rgba(0,0,0,0) 100%); }
+  .logo img { position:relative; height:32px; width:auto; display:block; }
   .player { position:sticky; top:0; z-index:5; background:#000; }
   video { width:100%; aspect-ratio:16/9; display:block; background:#000; }
   .now { display:flex; align-items:center; gap:8px; padding:10px 20px; min-height:42px;
@@ -56,14 +58,14 @@
 </style>
 </head>
 <body>
-<header><img src="logo.svg?v=2" alt="rus tv" width="80" height="30"></header>
+<header><span class="logo"><img src="logo.svg?v=2" alt="rus tv" width="85" height="32"></span></header>
 <div class="player">
   <video id="v" controls playsinline autoplay referrerpolicy="no-referrer"></video>
   <div class="now" id="nowBox"><span class="live">LIVE</span><span id="now">Выбери канал</span></div>
 </div>
 <p class="hint">Нажми на канал. Если источник не отвечает, приложение само попробует следующий — внизу под плеером видно, что происходит. Зелёный кружок — источник работает, красный — нет.</p>
 <div id="lists"></div>
-<footer>версия 11</footer>
+<footer>версия 12</footer>
 
 <script>
 const PROXY = "https://rustv.bvrhockey.workers.dev/?u=";
