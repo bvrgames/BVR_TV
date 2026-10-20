@@ -33,19 +33,18 @@
   <video id="v" controls playsinline autoplay referrerpolicy="no-referrer"></video>
   <div class="now" id="now">Выбери канал</div>
 </div>
-<p class="hint">Нажми на канал: он запустит первую ссылку, а если не пойдёт, сам попробует следующую. Зелёная кнопка — ссылка работает, красная — нет. Ссылки с пометкой http Telegram обычно блокирует. <b>Версия 2</b></p>
+<p class="hint">Нажми на канал: он запустит первую ссылку, а если не пойдёт, сам попробует следующую. Зелёная кнопка — ссылка работает, красная — нет. <b>Версия 3</b></p>
 <div class="list" id="list"></div>
 
 <script>
 const CHANNELS = [
   { name: "Первый", sources: [
-    "https://serv30.vintera.tv/restream/1_old/playlist.m3u8",
     "https://streaming.thestream.cyou/live/210.m3u8",
-    "http://45.153.24.78/1TV/index.m3u8",
+    "https://serv30.vintera.tv/restream/1_old/playlist.m3u8",
   ]},
   { name: "Россия 1", sources: [
-    "https://live.smotrim.ru/vgtrk/0/russia1-hd/index.m3u8",
     "https://stream.smotrim.ru/hls2/russia_hd/playlist_6.m3u8",
+    "https://live.smotrim.ru/vgtrk/0/russia1-hd/index.m3u8",
     "https://vgtrkregion-reg.cdnvideo.ru/vgtrk/0/russia1-hd/index.m3u8",
   ]},
   { name: "НТВ", sources: [
@@ -56,12 +55,10 @@ const CHANNELS = [
   ]},
   { name: "СТС", sources: [
     "https://streaming.televizor-24-tochka.ru/live/296.m3u8",
-    "http://stream.mcquack.net/138/index.m3u8",
   ]},
   { name: "ТНТ", sources: [
     "https://bl.rutube.ru/livestream/546602986e6a424d74d594876ddb3f04/index.m3u8?s=K-z3nz49R1oGQ-5yPSd8pg&e=2082157024&scheme=https",
     "https://streaming.televizor-24-tochka.ru/live/38.m3u8",
-    "http://stream.mcquack.net/135/index.m3u8",
   ]},
 ];
 
@@ -128,8 +125,12 @@ function play(ci, si, autoNext) {
     now.innerHTML = '<b>' + ch.name + '</b>: идёт, ссылка ' + (si + 1) + (video.muted ? ' — включи звук в плеере' : '');
   };
   const start = () => video.play().catch(() => { video.muted = true; video.play().catch(() => {}); });
-  timer = setTimeout(() => fail('нет ответа 20 сек'), 20000);
+  timer = setTimeout(() => {
+    if (video.readyState >= 2 || video.currentTime > 0) ok(); else fail('нет ответа 20 сек');
+  }, 20000);
   video.onplaying = ok;
+  video.onloadeddata = ok;
+  video.ontimeupdate = () => { if (video.currentTime > 0) ok(); };
   video.onerror = () => fail('ошибка плеера');
 
   if (nativeHls) {
