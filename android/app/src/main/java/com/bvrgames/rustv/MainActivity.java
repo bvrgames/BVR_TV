@@ -1,6 +1,7 @@
 package com.bvrgames.rustv;
 
 import android.app.Activity;
+import android.content.Intent;
 import android.content.SharedPreferences;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
@@ -93,6 +94,7 @@ public class MainActivity extends Activity {
     // Один общий HTTP-клиент: проверка источников «прогревает» соединение, и плеер потом подключается быстрее
     private OkHttpClient http;
     private ExecutorService pool;
+    private Updater updater;
 
     private List<Channels.Channel> channels = new ArrayList<>();
     private Bitmap logoSprite;
@@ -139,6 +141,7 @@ public class MainActivity extends Activity {
                 .retryOnConnectionFailure(true).followRedirects(true).followSslRedirects(true)
                 .build();
         pool = Executors.newFixedThreadPool(6);
+        updater = new Updater(this, http, pool, () -> { if (player != null) player.stop(); });
         buildUi();
         loadLocalData();
         refreshFromSite();
@@ -155,7 +158,28 @@ public class MainActivity extends Activity {
         if (player == null) createPlayer();
         if (splashDone) startLastOrCurrent();
         ui.post(epgTimer);
+        ui.postDelayed(updateTimer, 20000); // обновление проверяем, когда канал уже включился
     }
+
+    @Override
+    protected void onResume() {
+        super.onResume();
+        updater.onResume();
+    }
+
+    @Override
+    protected void onNewIntent(Intent intent) {
+        super.onNewIntent(intent);
+        if (intent != null && Updater.ACTION_INSTALL.equals(intent.getAction())) updater.onInstallResult(intent);
+    }
+
+    // Новые версии ищем при запуске и потом раз в 6 часов
+    private final Runnable updateTimer = new Runnable() {
+        @Override public void run() {
+            updater.check();
+            ui.postDelayed(this, 6 * 60 * 60 * 1000L);
+        }
+    };
 
     @Override
     protected void onStop() {

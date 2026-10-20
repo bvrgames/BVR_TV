@@ -78,12 +78,14 @@ jobs:
         run: |
           N=${{ github.run_number }}
           cd "$RUNNER_TEMP"
+          # По этому файлу приложение на ТВ узнаёт, что вышла новая версия, и проверяет, что APK скачался целым
+          echo "$N $(sha256sum rus-tv.apk | cut -c1-64)" > tv-version.txt
           NOTES="Приложение rus tv для Android TV, версия 1.$N. Скачай rus-tv.apk и установи на телевизор."
           if gh release view tv -R "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
-            gh release upload tv rus-tv.apk --clobber -R "$GITHUB_REPOSITORY"
+            gh release upload tv rus-tv.apk tv-version.txt --clobber -R "$GITHUB_REPOSITORY"
             gh release edit tv --title "rus tv для ТВ — версия 1.$N" --notes "$NOTES" -R "$GITHUB_REPOSITORY"
           else
-            gh release create tv rus-tv.apk --title "rus tv для ТВ — версия 1.$N" --notes "$NOTES" --latest -R "$GITHUB_REPOSITORY"
+            gh release create tv rus-tv.apk tv-version.txt --title "rus tv для ТВ — версия 1.$N" --notes "$NOTES" --latest -R "$GITHUB_REPOSITORY"
           fi
           echo "::notice::APK: https://github.com/$GITHUB_REPOSITORY/releases/download/tv/rus-tv.apk"
 
