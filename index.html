@@ -62,7 +62,7 @@
 </div>
 <h2>Каналы</h2>
 <div class="list" id="list"></div>
-<footer>версия 8</footer>
+<footer>версия 9</footer>
 
 <script>
 const PROXY = "https://rustv.bvrhockey.workers.dev/?u=";
@@ -97,6 +97,8 @@ const CHANNELS = [
   { name: "СТС", short: "СТС", color: "#ff7a00", sources: [
     viaProxy("http://stream.mcquack.net/138/index.m3u8"),
     viaProxy("http://ott-cdn.ucom.am/s52/04.m3u8"),
+    viaProxy("http://tshift-1.telecoma.tv/sts/index.m3u8"),
+    viaProxy("http://45.153.24.78/STS/index.m3u8"),
     "https://streaming.televizor-24-tochka.ru/live/296.m3u8",
   ]},
   { name: "ТНТ", short: "ТНТ", color: "#7b2ff7", sources: [
