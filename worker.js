@@ -1,11 +1,9 @@
 // BVR TV — прокси для http-потоков (Cloudflare Worker)
 // Использование: https://<имя-воркера>.workers.dev/?u=<ссылка на поток>
 
-// Серверы, через которые разрешено проксировать (чтобы прокси не использовали чужие)
-const ALLOWED_HOSTS = [
-  "stream.mcquack.net",
-  "ott-cdn.ucom.am",
-];
+// Разрешены любые серверы с потоками, чтобы новые каналы добавлялись без правки этого кода.
+// Если прокси начнут использовать чужие, сюда можно вернуть список разрешённых серверов.
+const ALLOWED_HOSTS = null;
 
 const CORS = {
   "Access-Control-Allow-Origin": "*",
@@ -36,13 +34,13 @@ export default {
 
     const reqUrl = new URL(request.url);
     const target = reqUrl.searchParams.get("u");
-    if (!target) return new Response("BVR TV proxy работает", { headers: CORS });
+    if (!target) return new Response("BVR TV proxy работает (версия 2)", { headers: CORS });
 
     let t;
     try { t = new URL(target); } catch (e) {
       return new Response("Неверная ссылка", { status: 400, headers: CORS });
     }
-    if (!ALLOWED_HOSTS.includes(t.hostname)) {
+    if (!/^https?:$/.test(t.protocol) || (ALLOWED_HOSTS && !ALLOWED_HOSTS.includes(t.hostname))) {
       return new Response("Этот сервер не разрешён", { status: 403, headers: CORS });
     }
 
