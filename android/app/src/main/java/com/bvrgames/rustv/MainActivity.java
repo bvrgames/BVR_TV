@@ -46,7 +46,9 @@ import androidx.media3.exoplayer.DefaultRenderersFactory;
 import androidx.media3.exoplayer.ExoPlayer;
 import androidx.media3.exoplayer.hls.HlsMediaSource;
 import androidx.media3.exoplayer.trackselection.DefaultTrackSelector;
+import androidx.media3.exoplayer.trackselection.AdaptiveTrackSelection;
 import androidx.media3.exoplayer.upstream.DefaultBandwidthMeter;
+import androidx.media3.exoplayer.upstream.DefaultLoadErrorHandlingPolicy;
 import androidx.media3.ui.AspectRatioFrameLayout;
 import androidx.media3.ui.PlayerView;
 
@@ -83,7 +85,7 @@ public class MainActivity extends Activity {
     private static final String RAW = "https://raw.githubusercontent.com/bvrgames/BVR_TV/main/";
     private static final String EPG = "https://raw.githubusercontent.com/bvrgames/BVR_TV/epg/epg.json";
     private static final String PROXY = "https://rustv.bvrhockey.workers.dev/?u=";
-    private static final String BOT = "Telegram · @rus_tv_bot";
+    private static final String BOT = "@rus_tv_bot";
     private static final String UA = "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Mobile Safari/537.36";
 
     private static final int ACCENT = 0xFFBF5AF2, OK = 0xFF30D158, BAD = 0xFFFF453A, MUTED = 0xFF8E8E93, SOFT = 0xCCFFFFFF;
@@ -114,7 +116,8 @@ public class MainActivity extends Activity {
     private ListView list;
     private ChannelAdapter adapter;
     private FrameLayout infoBadge;
-    private TextView infoName, infoStatus, liveTag, infoNow, infoNext, footer;
+    private TextView infoName, infoStatus, liveTag, infoNow, infoNext;
+    private LinearLayout infoDots;
     private ProgressBar infoProgress;
 
     private boolean splashDone;
@@ -234,14 +237,20 @@ public class MainActivity extends Activity {
     // ---------- плеер ----------
 
     private void createPlayer() {
-        DefaultTrackSelector ts = new DefaultTrackSelector(this);
+        // Как у YouTube: качество повышаем, только когда скорость стабильно держится 10 секунд,
+        // а при просадке сразу опускаем — лучше чуть мыльнее, чем крутилка
+        AdaptiveTrackSelection.Factory abr = new AdaptiveTrackSelection.Factory(
+                10000, 25000, 25000, 0.6f);
+        DefaultTrackSelector ts = new DefaultTrackSelector(this, abr);
         // Слабому телевизору и Wi-Fi 2.4 ГГц хватает 720p: картинка та же, а нагрузки и рывков меньше
         ts.setParameters(ts.buildUponParameters().setMaxVideoSize(1280, 720).setExceedVideoConstraintsIfNecessary(true)
                 .setExceedRendererCapabilitiesIfNecessary(true));
         // Начинаем с умеренного качества — картинка появляется быстрее, дальше плеер сам поднимет качество
-        DefaultBandwidthMeter meter = new DefaultBandwidthMeter.Builder(this).setInitialBitrateEstimate(1_500_000).build();
+        DefaultBandwidthMeter meter = new DefaultBandwidthMeter.Builder(this).setInitialBitrateEstimate(800_000).build();
         DefaultLoadControl lc = new DefaultLoadControl.Builder()
-                .setBufferDurationsMs(20000, 50000, 1500, 3000).build();
+                // старт через 2 с запаса; после рывка ждём 5 с, чтобы не было «рывок-рывок-рывок»
+                .setBufferDurationsMs(30000, 60000, 2000, 5000)
+                .setPrioritizeTimeOverSizeThresholds(true).build();
         player = new ExoPlayer.Builder(this, new DefaultRenderersFactory(this).setEnableDecoderFallback(true))
                 .setTrackSelector(ts).setLoadControl(lc).setBandwidthMeter(meter).build();
         player.setAudioAttributes(new AudioAttributes.Builder().setUsage(C.USAGE_MEDIA)
@@ -271,12 +280,14 @@ public class MainActivity extends Activity {
 
     private HlsMediaSource source(String url) {
         OkHttpDataSource.Factory ds = new OkHttpDataSource.Factory(http).setUserAgent(UA);
-        // Скорость всегда 1×: без подгонки к эфиру слабому процессору не нужно пересчитывать звук
+        // Если запас кончается, плеер незаметно замедляется на 3% и копит его — вместо остановки
         MediaItem item = new MediaItem.Builder().setUri(url)
                 .setLiveConfiguration(new MediaItem.LiveConfiguration.Builder()
-                        .setMinPlaybackSpeed(1f).setMaxPlaybackSpeed(1f).build())
+                        .setMinPlaybackSpeed(0.97f).setMaxPlaybackSpeed(1f).build())
                 .build();
-        return new HlsMediaSource.Factory(ds).setAllowChunklessPreparation(true).createMediaSource(item);
+        return new HlsMediaSource.Factory(ds).setAllowChunklessPreparation(true)
+                .setLoadErrorHandlingPolicy(new DefaultLoadErrorHandlingPolicy(6))
+                .createMediaSource(item);
     }
 
     private void startLastOrCurrent() {
@@ -316,10 +327,19 @@ public class MainActivity extends Activity {
     }
 
     private long rank(Channels.Channel ch, int si) {
-        Long ms = probeMs.get(ch.sources.get(si));
-        if (ms == null) return 100_000 + si;     // ещё не проверен
-        if (ms < 0) return 1_000_000 + si;      // не ответил
-        return ms;
+        String u = ch.sources.get(si);
+        Long ms = probeMs.get(u);
+        long base = ms == null ? 6000 : ms < 0 ? 60000 : ms;
+        return base + 3000L * fails(u) - 800L * Math.min(oks(u), 5) + si;
+    }
+
+    private String hkey(String u) { return Integer.toHexString(u.hashCode()); }
+    private int oks(String u) { return prefs.getInt("ok:" + hkey(u), 0); }
+    private int fails(String u) { return prefs.getInt("bad:" + hkey(u), 0); }
+    private void score(String u, boolean good) {
+        int ok = oks(u), bad = fails(u);
+        if (good) { ok = Math.min(ok + 1, 20); bad = Math.max(bad - 2, 0); } else bad = Math.min(bad + 1, 5);
+        prefs.edit().putInt("ok:" + hkey(u), ok).putInt("bad:" + hkey(u), bad).apply();
     }
 
     /** Параллельно проверяем все источники канала: отвечает ли и как быстро. */
@@ -351,8 +371,7 @@ public class MainActivity extends Activity {
         probeMs.put(url, ms);
         if (current < 0 || current >= channels.size() || channels.get(current) != ch || played) return;
         sortRest(ch, pos + 1);
-        // Источник, к которому сейчас подключаемся, не отвечает — не ждём таймаута, сразу берём следующий
-        if (ms < 0 && ch.sources.get(currentSrc).equals(url)) fail(attempt);
+        updateDots();
     }
 
     private void playAt(boolean isRetry) {
@@ -368,6 +387,7 @@ public class MainActivity extends Activity {
         setStatus("Подключаюсь к источнику " + (si + 1) + " из " + ch.sources.size()
                 + (round > 1 ? " · круг " + round : "") + "…", MUTED, false);
 
+        updateDots();
         player.stop();
         player.setMediaSource(source(ch.sources.get(si)));
         player.prepare();
@@ -388,8 +408,10 @@ public class MainActivity extends Activity {
         played = true;
         Channels.Channel ch = channels.get(current);
         probeMs.put(ch.sources.get(currentSrc), 0L);
+        score(ch.sources.get(currentSrc), true);
         prefs.edit().putInt("src:" + ch.name, currentSrc).putString("last", ch.name).apply();
         setStatus("Идёт · источник " + (currentSrc + 1) + " из " + ch.sources.size(), OK, true);
+        updateDots();
         showInfo(5000);
     }
 
@@ -398,7 +420,9 @@ public class MainActivity extends Activity {
         attempt++;
         Channels.Channel ch = channels.get(current);
         probeMs.put(ch.sources.get(currentSrc), -1L);
+        score(ch.sources.get(currentSrc), false);
         setStatus("Источник " + (currentSrc + 1) + " не отвечает, пробую следующий…", BAD, false);
+        updateDots();
         showInfo(0);
         nextSource(300);
     }
@@ -434,6 +458,8 @@ public class MainActivity extends Activity {
         @Override public void run() {
             if (player == null || !played) return;
             if (player.getPlaybackState() == Player.STATE_BUFFERING) {
+                score(channels.get(current).sources.get(currentSrc), false);
+                probeMs.put(channels.get(current).sources.get(currentSrc), -1L);
                 setStatus("Поток завис, переключаю…", BAD, false);
                 showInfo(0);
                 attempt++;
@@ -596,6 +622,11 @@ public class MainActivity extends Activity {
         col.addView(infoNext);
         infoStatus = text(15, MUTED, false);
         col.addView(infoStatus);
+        infoDots = new LinearLayout(this);
+        infoDots.setGravity(Gravity.CENTER_VERTICAL);
+        LinearLayout.LayoutParams dlp = new LinearLayout.LayoutParams(-2, -2);
+        dlp.topMargin = dp(6);
+        col.addView(infoDots, dlp);
         infoBar.addView(col, new LinearLayout.LayoutParams(-2, -2));
         FrameLayout.LayoutParams ip = new FrameLayout.LayoutParams(-2, -2, Gravity.BOTTOM | Gravity.START);
         ip.setMargins(dp(40), 0, dp(40), dp(32));
@@ -614,10 +645,7 @@ public class MainActivity extends Activity {
         LinearLayout.LayoutParams logoLp = new LinearLayout.LayoutParams(-2, dp(34));
         logoLp.leftMargin = dp(8);
         panel.addView(logo, logoLp);
-        TextView bot = text(13, MUTED, false);
-        bot.setText(BOT);
-        bot.setPadding(dp(8), dp(4), 0, dp(10));
-        panel.addView(bot);
+        logoLp.bottomMargin = dp(12);
         list = new ListView(this);
         list.setDivider(new ColorDrawable(Color.TRANSPARENT));
         list.setDividerHeight(dp(2));
@@ -636,10 +664,11 @@ public class MainActivity extends Activity {
         adapter = new ChannelAdapter();
         list.setAdapter(adapter);
         panel.addView(list, new LinearLayout.LayoutParams(-1, 0, 1f));
-        footer = text(13, MUTED, false);
-        footer.setSingleLine(false);
-        footer.setPadding(dp(8), dp(8), 0, 0);
-        panel.addView(footer);
+        panel.addView(botCard());
+        TextView hint = text(12, MUTED, false);
+        hint.setText("▲▼ каналы  ·  OK список  ·  ► другой источник  ·  версия " + BuildConfig.VERSION_NAME);
+        hint.setPadding(dp(8), dp(8), 0, 0);
+        panel.addView(hint);
         panel.setVisibility(View.GONE);
         root.addView(panel, new FrameLayout.LayoutParams(dp(440), -1, Gravity.START));
 
@@ -651,6 +680,35 @@ public class MainActivity extends Activity {
         root.addView(splashBox, new FrameLayout.LayoutParams(-1, -1));
 
         setContentView(root);
+    }
+
+    /** Карточка бота внизу списка: QR-код (навести камеру телефона) и @имя. На телевизоре ссылку не нажмёшь — а QR сканируется за секунду. */
+    private View botCard() {
+        LinearLayout c = new LinearLayout(this);
+        c.setGravity(Gravity.CENTER_VERTICAL);
+        c.setPadding(dp(10), dp(10), dp(14), dp(10));
+        c.setBackground(round(0xFF1C1C1E, 14));
+        ImageView qr = new ImageView(this);
+        qr.setImageResource(R.drawable.bot_qr);
+        qr.setBackground(round(Color.WHITE, 8));
+        qr.setPadding(dp(4), dp(4), dp(4), dp(4));
+        c.addView(qr, new LinearLayout.LayoutParams(dp(68), dp(68)));
+        LinearLayout t = new LinearLayout(this);
+        t.setOrientation(LinearLayout.VERTICAL);
+        TextView a = text(13, MUTED, false);
+        a.setText("rus tv в Telegram");
+        TextView b = text(18, Color.WHITE, true);
+        b.setText(BOT);
+        TextView d = text(12, MUTED, false);
+        d.setText("Наведи камеру телефона на код");
+        t.addView(a); t.addView(b); t.addView(d);
+        LinearLayout.LayoutParams tl = new LinearLayout.LayoutParams(-2, -2);
+        tl.leftMargin = dp(14);
+        c.addView(t, tl);
+        LinearLayout.LayoutParams cl = new LinearLayout.LayoutParams(-1, -2);
+        cl.topMargin = dp(8);
+        c.setLayoutParams(cl);
+        return c;
     }
 
     private LayerDrawable progressDrawable() {
@@ -708,6 +766,7 @@ public class MainActivity extends Activity {
 
     private void fillInfo(int ci) {
         Channels.Channel ch = channels.get(ci);
+        infoDots.setVisibility(ci == current ? View.VISIBLE : View.GONE);
         infoName.setText(ch.name);
         infoBadge.removeAllViews();
         infoBadge.addView(badge(ch, 15), new FrameLayout.LayoutParams(-1, -1));
@@ -729,6 +788,35 @@ public class MainActivity extends Activity {
             infoNow.setVisibility(View.GONE);
             infoProgress.setVisibility(View.GONE);
             infoNext.setVisibility(View.GONE);
+        }
+    }
+
+    /** Кружки источников как в веб-версии: номер, зелёный — работает, красный — не отвечает, обведён — текущий. */
+    private void updateDots() {
+        if (current < 0 || infoDots == null) return;
+        Channels.Channel ch = channels.get(current);
+        if (infoDots.getChildCount() != ch.sources.size()) {
+            infoDots.removeAllViews();
+            for (int i = 0; i < ch.sources.size(); i++) {
+                TextView d = text(11, Color.WHITE, true);
+                d.setGravity(Gravity.CENTER);
+                d.setText(String.valueOf(i + 1));
+                LinearLayout.LayoutParams l = new LinearLayout.LayoutParams(dp(22), dp(22));
+                l.rightMargin = dp(6);
+                infoDots.addView(d, l);
+            }
+        }
+        for (int i = 0; i < ch.sources.size(); i++) {
+            TextView d = (TextView) infoDots.getChildAt(i);
+            Long ms = probeMs.get(ch.sources.get(i));
+            boolean cur = i == currentSrc;
+            int fill = (cur && played) || (ms != null && ms >= 0) ? OK : (ms != null ? BAD : 0xFF48484A);
+            GradientDrawable g = new GradientDrawable();
+            g.setShape(GradientDrawable.OVAL);
+            g.setColor(fill);
+            if (cur) g.setStroke(dp(2), Color.WHITE);
+            d.setBackground(g);
+            d.setAlpha(cur ? 1f : 0.75f);
         }
     }
 
@@ -917,7 +1005,6 @@ public class MainActivity extends Activity {
         if (sprite != null) logoSprite = BitmapFactory.decodeByteArray(sprite, 0, sprite.length);
         String epg = readFile("epg.json");
         if (epg != null) applyEpg(epg);
-        footer.setText("версия " + BuildConfig.VERSION_NAME + "\n▲▼ каналы  ·  OK список  ·  ► другой источник");
     }
 
     private void applyChannels(List<Channels.Channel> fresh) {
