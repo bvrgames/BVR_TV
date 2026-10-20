@@ -111,7 +111,7 @@
 <nav class="tabs" id="tabs"></nav>
 <p class="hint">Нажми на канал. Если источник не отвечает, приложение само попробует следующий — под плеером видно, что происходит. Зелёный кружок — источник работает, красный — нет.</p>
 <div id="lists"></div>
-<footer>версия 22</footer>
+<footer>версия 23</footer>
 </div>
 </div>
 
@@ -122,7 +122,7 @@
   upd(); addEventListener('resize', upd); addEventListener('orientationchange', () => setTimeout(upd, 300));
 })();
 // Telegram держит старую версию в кэше. Сверяем номер версии с сайтом и, если вышла новая, перезагружаемся один раз.
-const APP_VERSION = "22";
+const APP_VERSION = "23";
 (() => {
   fetch('version.txt?t=' + Date.now(), { cache: 'no-store' }).then(r => r.ok ? r.text() : '').then(v => {
     v = (v || '').trim();
@@ -432,10 +432,7 @@ CHANNELS.forEach((ch, ci) => {
     d.onclick = (e) => { e.stopPropagation(); play(ci, si, false); };
     dots.appendChild(d);
   });
-  row.onclick = () => {
-    const saved = parseInt(store.get('src' + ci), 10);
-    play(ci, Number.isInteger(saved) && saved < ch.sources.length ? saved : 0, true, 0);
-  };
+  row.onclick = () => startChannel(ci);
   if (!sections[ch.sec]) {
     const wrap = document.createElement('div'); wrap.className = 'sec'; wrap.dataset.sec = ch.sec;
     const t = document.createElement('h2'); t.textContent = ch.sec; wrap.appendChild(t);
@@ -460,6 +457,21 @@ function showTab(sec) {
   tabsBox.appendChild(b);
 });
 showTab(sections[store.get('tab')] || store.get('tab') === 'Все' ? store.get('tab') : 'Основные');
+
+function startChannel(ci) {
+  const ch = CHANNELS[ci];
+  const saved = parseInt(store.get('src' + ci), 10);
+  play(ci, Number.isInteger(saved) && saved < ch.sources.length ? saved : 0, true, 0);
+}
+// При открытии сразу включаем канал, который смотрели в прошлый раз (в первый раз — Первый)
+(() => {
+  const last = store.get('last');
+  let ci = CHANNELS.findIndex(c => c.name === last);
+  if (ci < 0) ci = 0;
+  const sec = CHANNELS[ci].sec, tab = store.get('tab');
+  if (tab && tab !== 'Все' && tab !== sec) showTab(sec);
+  setTimeout(() => startChannel(ci), 50);
+})();
 
 // Высота плеера — чтобы кнопки разделов прилипали прямо под ним
 (() => {
@@ -544,7 +556,7 @@ async function play(ci, si, autoNext, tried = 0, retried = false) {
     if (done || my !== attempt) return; done = true; played = true;
     clearTimeout(timer);
     mark(ci, si, 'ok');
-    store.set('src' + ci, si);
+    store.set('src' + ci, si); store.set('last', ch.name);
     setStatus('<b>' + ch.name + '</b> · идёт, источник ' + (si + 1) + (video.muted ? ' · включи звук' : ''), true);
     document.getElementById('sub' + ci).textContent = 'Идёт · источник ' + (si + 1);
   };

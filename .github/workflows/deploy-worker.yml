@@ -41,3 +41,18 @@ jobs:
             echo "::error::Wrangler: ${msg:-$(tail -3 out.txt | tr '\n' ' ')}"
             exit 1
           fi
+      - name: Подключить бота (приветствие на /start)
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+        run: |
+          if [ -z "$TELEGRAM_BOT_TOKEN" ]; then echo "::warning::Нет секрета TELEGRAM_BOT_TOKEN — приветствие бота не подключено"; exit 0; fi
+          printf '%s' "$TELEGRAM_BOT_TOKEN" | npx --yes wrangler@4 secret put TELEGRAM_BOT_TOKEN >/dev/null
+          SECRET=$(printf 'rustv:%s' "$TELEGRAM_BOT_TOKEN" | sha256sum | cut -c1-32)
+          RES=$(curl -sS "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/setWebhook" \
+            --data-urlencode "url=https://rustv.bvrhockey.workers.dev/tg" \
+            --data-urlencode "secret_token=${SECRET}" \
+            --data-urlencode 'allowed_updates=["message"]')
+          if echo "$RES" | grep -q '"ok":true'; then echo "::notice::Бот подключён: приветствие на /start работает"
+          else echo "::error::Telegram ответил: $(echo "$RES" | sed 's/%/%25/g')"; exit 1; fi
