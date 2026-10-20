@@ -18,10 +18,10 @@
          -webkit-font-smoothing:antialiased; padding-bottom:env(safe-area-inset-bottom); }
 
   /* Шапка: единственное фиолетовое место, как на аватарке */
-  header { display:flex; justify-content:center; align-items:center; height:64px;
-           background:radial-gradient(ellipse at 50% 60%, #4a0650 0%, #2a0034 55%, #0a0010 100%); }
-  header img { height:30px; width:auto; display:block; }
-
+  header { position:relative; display:flex; justify-content:center; align-items:center; height:116px; background:#000; overflow:hidden; }
+  header::before { content:""; position:absolute; left:50%; top:50%; width:320px; height:150px; transform:translate(-50%,-50%);
+    background:radial-gradient(closest-side, rgba(130,12,140,.9) 0%, rgba(80,8,95,.55) 45%, rgba(35,0,45,.2) 75%, rgba(0,0,0,0) 100%); pointer-events:none; }
+  header img { position:relative; height:32px; width:auto; display:block; }
   .player { position:sticky; top:0; z-index:5; background:#000; }
   video { width:100%; aspect-ratio:16/9; display:block; background:#000; }
   .now { display:flex; align-items:center; gap:8px; padding:10px 20px; min-height:42px;
@@ -51,6 +51,7 @@
   .dot.cur { box-shadow:0 0 0 2px var(--text); }
   .ch:not(.active) .dots { display:none; }
 
+  .hint { margin:14px 20px 0; font-size:13px; line-height:1.4; color:var(--muted); }
   footer { text-align:center; color:#48484a; font-size:12px; margin:24px 0 20px; }
 </style>
 </head>
@@ -60,9 +61,10 @@
   <video id="v" controls playsinline autoplay referrerpolicy="no-referrer"></video>
   <div class="now" id="nowBox"><span class="live">LIVE</span><span id="now">Выбери канал</span></div>
 </div>
+<p class="hint">Нажми на канал. Если источник не отвечает, приложение само попробует следующий — внизу под плеером видно, что происходит. Зелёный кружок — источник работает, красный — нет.</p>
 <h2>Каналы</h2>
 <div class="list" id="list"></div>
-<footer>версия 9</footer>
+<footer>версия 10</footer>
 
 <script>
 const PROXY = "https://rustv.bvrhockey.workers.dev/?u=";
@@ -95,11 +97,11 @@ const CHANNELS = [
     "https://cdn.ntv.ru/ntv-msk_hd/index.m3u8",
   ]},
   { name: "СТС", short: "СТС", color: "#ff7a00", sources: [
+    "https://streaming.televizor-24-tochka.ru/live/296.m3u8",
     viaProxy("http://stream.mcquack.net/138/index.m3u8"),
     viaProxy("http://ott-cdn.ucom.am/s52/04.m3u8"),
     viaProxy("http://tshift-1.telecoma.tv/sts/index.m3u8"),
     viaProxy("http://45.153.24.78/STS/index.m3u8"),
-    "https://streaming.televizor-24-tochka.ru/live/296.m3u8",
   ]},
   { name: "ТНТ", short: "ТНТ", color: "#7b2ff7", sources: [
     "https://bl.rutube.ru/livestream/546602986e6a424d74d594876ddb3f04/index.m3u8?s=K-z3nz49R1oGQ-5yPSd8pg&e=2082157024&scheme=https",
@@ -177,7 +179,7 @@ function stop() {
 async function play(ci, si, autoNext, tried = 0) {
   const ch = CHANNELS[ci];
   if (tried >= ch.sources.length) {
-    setStatus('<b>' + ch.name + '</b> · сейчас недоступен, попробуй позже');
+    setStatus('<b>' + ch.name + '</b> · все источники сейчас не отвечают, попробуй позже');
     document.getElementById('sub' + ci).textContent = 'Недоступен';
     return;
   }
@@ -191,7 +193,7 @@ async function play(ci, si, autoNext, tried = 0) {
   }
   document.querySelectorAll('.dot').forEach(e => e.classList.remove('cur'));
   document.getElementById('d' + ci + '_' + si).classList.add('cur');
-  setStatus('<b>' + ch.name + '</b> · подключаюсь…');
+  setStatus('<b>' + ch.name + '</b> · подключаюсь к источнику ' + (si + 1) + ' из ' + ch.sources.length + '…');
   document.getElementById('sub' + ci).textContent = 'Подключаюсь, источник ' + (si + 1);
 
   const url = ch.sources[si];
@@ -201,6 +203,8 @@ async function play(ci, si, autoNext, tried = 0) {
     if (done || my !== attempt) return; done = true;
     mark(ci, si, 'bad');
     document.getElementById('sub' + ci).textContent = 'Источник ' + (si + 1) + ' не отвечает';
+    if (autoNext && tried + 1 < ch.sources.length) setStatus('<b>' + ch.name + '</b> · источник ' + (si + 1) + ' не отвечает, пробую следующий…');
+    else if (!autoNext) setStatus('<b>' + ch.name + '</b> · источник ' + (si + 1) + ' не отвечает');
     setTimeout(next, 300);
   };
   const ok = () => {
@@ -208,7 +212,7 @@ async function play(ci, si, autoNext, tried = 0) {
     clearTimeout(timer);
     mark(ci, si, 'ok');
     store.set('src' + ci, si);
-    setStatus('<b>' + ch.name + '</b>' + (video.muted ? ' · включи звук' : ''), true);
+    setStatus('<b>' + ch.name + '</b> · идёт, источник ' + (si + 1) + (video.muted ? ' · включи звук' : ''), true);
     document.getElementById('sub' + ci).textContent = 'Идёт · источник ' + (si + 1);
   };
   const start = () => video.play().catch(() => { video.muted = true; video.play().catch(() => {}); });
