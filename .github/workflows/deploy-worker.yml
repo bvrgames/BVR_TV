@@ -53,6 +53,6 @@ jobs:
           RES=$(curl -sS "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/setWebhook" \
             --data-urlencode "url=https://rustv.bvrhockey.workers.dev/tg" \
             --data-urlencode "secret_token=${SECRET}" \
-            --data-urlencode 'allowed_updates=["message"]')
+            --data-urlencode 'allowed_updates=["message","callback_query","pre_checkout_query"]')
           if echo "$RES" | grep -q '"ok":true'; then echo "::notice::Бот подключён: приветствие на /start работает"
           else echo "::error::Telegram ответил: $(echo "$RES" | sed 's/%/%25/g')"; exit 1; fi

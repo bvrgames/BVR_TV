@@ -30,18 +30,73 @@ function rewritePlaylist(text, baseUrl, origin, ref) {
   }).join("\n");
 }
 
-// ---------- Бот @rus_tv_bot: приветствие на /start ----------
+// ---------- Бот @rus_tv_bot: приветствие, версия для ТВ, донаты звёздами ----------
 // Токен бота хранится секретом TELEGRAM_BOT_TOKEN в Cloudflare (кладётся туда автоматически из GitHub).
 const APP_URL = "https://bvrgames.github.io/BVR_TV/";
+const APK_URL = "https://github.com/bvrgames/BVR_TV/releases/download/tv/rus-tv.apk";
+const TV_SHORT = "rustv.bvrhockey.workers.dev/tv";
 const WELCOME =
   "Привет! Это <b>rus tv</b> — русские каналы прямо в Telegram 📺\n\n" +
   "Нажми «Смотреть ТВ» и выбери канал: Первый, Россия 1, НТВ, СТС, ТНТ, спорт, кино и детские.\n\n" +
-  "Если канал не включился сразу, подожди несколько секунд: приложение само найдёт рабочую трансляцию.";
+  "Если канал не включился сразу, подожди несколько секунд: приложение само найдёт рабочую трансляцию.\n\n" +
+  "Есть и <b>приложение для телевизора</b> на Android TV — с программой передач и управлением с пульта.";
+const TV_TEXT =
+  "📺 <b>rus tv для телевизора</b>\n\n" +
+  "Работает на телевизорах и приставках с Android TV. Каналы листаются стрелками пульта, видно, что идёт сейчас, обновляется само.\n\n" +
+  "<b>Как поставить:</b>\n" +
+  "1. На телевизоре открой Google Play и установи приложение <b>Downloader</b>.\n" +
+  "2. В Downloader введи адрес:\n<code>" + TV_SHORT + "</code>\n" +
+  "3. Нажми «Установить». Если телевизор спросит — разреши установку из неизвестных источников.";
+const DONATE_TEXT =
+  "⭐ <b>Поддержать rus tv</b>\n\n" +
+  "Приложение бесплатное и без рекламы. Если оно тебе нравится — можно поддержать проект звёздами Telegram. Спасибо!";
+const DONATE_AMOUNTS = [50, 100, 250, 500];
+
+const MAIN_KB = {
+  inline_keyboard: [
+    [{ text: "📺 Смотреть ТВ", web_app: { url: APP_URL } }],
+    [{ text: "📲 Для телевизора", callback_data: "tv" }, { text: "⭐ Поддержать", callback_data: "donate" }],
+  ],
+};
 
 // Секрет для проверки, что запрос пришёл именно от Telegram: первые 32 символа SHA-256 от токена
 async function hookSecret(token) {
   const d = await crypto.subtle.digest("SHA-256", new TextEncoder().encode("rustv:" + token));
   return [...new Uint8Array(d)].map((b) => b.toString(16).padStart(2, "0")).join("").slice(0, 32);
+}
+
+function tg(token, method, body) {
+  return fetch("https://api.telegram.org/bot" + token + "/" + method, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+}
+
+function sendTv(token, chat) {
+  return tg(token, "sendMessage", {
+    chat_id: chat, text: TV_TEXT, parse_mode: "HTML",
+    reply_markup: { inline_keyboard: [[{ text: "⬇️ Скачать APK", url: APK_URL }]] },
+  });
+}
+
+function sendDonate(token, chat) {
+  return tg(token, "sendMessage", {
+    chat_id: chat, text: DONATE_TEXT, parse_mode: "HTML",
+    reply_markup: { inline_keyboard: [DONATE_AMOUNTS.map((n) => ({ text: n + " ⭐", callback_data: "pay:" + n }))] },
+  });
+}
+
+// Донат звёздами Telegram (валюта XTR): платёжный провайдер не нужен
+function sendInvoice(token, chat, stars) {
+  return tg(token, "sendInvoice", {
+    chat_id: chat,
+    title: "Поддержка rus tv",
+    description: "Спасибо, что помогаешь приложению развиваться! " + stars + " ⭐",
+    payload: "donate:" + stars,
+    currency: "XTR",
+    prices: [{ label: "Поддержка", amount: stars }],
+  });
 }
 
 async function handleBot(request, env) {
@@ -52,18 +107,37 @@ async function handleBot(request, env) {
   }
   let upd = {};
   try { upd = await request.json(); } catch (e) {}
+
+  // Перед оплатой Telegram спрашивает «можно?» — нужно ответить за 10 секунд
+  if (upd.pre_checkout_query) {
+    await tg(token, "answerPreCheckoutQuery", { pre_checkout_query_id: upd.pre_checkout_query.id, ok: true });
+    return new Response("ok");
+  }
+
+  const cb = upd.callback_query;
+  if (cb && cb.message) {
+    const chat = cb.message.chat.id, d = cb.data || "";
+    await tg(token, "answerCallbackQuery", { callback_query_id: cb.id });
+    if (d === "tv") await sendTv(token, chat);
+    else if (d === "donate") await sendDonate(token, chat);
+    else if (d.startsWith("pay:")) {
+      const n = parseInt(d.slice(4), 10);
+      if (DONATE_AMOUNTS.includes(n)) await sendInvoice(token, chat, n);
+    }
+    return new Response("ok");
+  }
+
   const msg = upd.message;
-  if (msg && msg.chat && typeof msg.text === "string" && msg.text.startsWith("/start")) {
-    await fetch("https://api.telegram.org/bot" + token + "/sendMessage", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        chat_id: msg.chat.id,
-        text: WELCOME,
-        parse_mode: "HTML",
-        reply_markup: { inline_keyboard: [[{ text: "📺 Смотреть ТВ", web_app: { url: APP_URL } }]] },
-      }),
-    });
+  if (msg && msg.chat) {
+    if (msg.successful_payment) {
+      await tg(token, "sendMessage", { chat_id: msg.chat.id, text: "Спасибо за поддержку! ❤️ Это очень помогает rus tv." });
+    } else if (typeof msg.text === "string") {
+      const t = msg.text.trim();
+      if (t.startsWith("/start")) {
+        await tg(token, "sendMessage", { chat_id: msg.chat.id, text: WELCOME, parse_mode: "HTML", reply_markup: MAIN_KB });
+      } else if (t.startsWith("/tv")) await sendTv(token, msg.chat.id);
+      else if (t.startsWith("/donate")) await sendDonate(token, msg.chat.id);
+    }
   }
   return new Response("ok");
 }
@@ -74,8 +148,12 @@ export default {
 
     const reqUrl = new URL(request.url);
     if (reqUrl.pathname === "/tg" && request.method === "POST") return handleBot(request, env);
+    // Короткий адрес для Downloader на телевизоре: /tv → свежий APK
+    if (reqUrl.pathname === "/tv" || reqUrl.pathname === "/tv/" || reqUrl.pathname === "/tv.apk") {
+      return Response.redirect(APK_URL, 302);
+    }
     const target = reqUrl.searchParams.get("u");
-    if (!target) return new Response("BVR TV proxy работает (версия 4)", { headers: CORS });
+    if (!target) return new Response("BVR TV proxy работает (версия 5)", { headers: CORS });
 
     let t;
     try { t = new URL(target); } catch (e) {

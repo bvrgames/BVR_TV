@@ -95,6 +95,27 @@
   html.wide .tabs { top:0; }
 
   footer { text-align:center; color:#48484a; font-size:12px; margin:24px 0 20px; }
+
+  /* Карточка «rus tv для телевизора» */
+  .tvcard { margin:28px 16px 0; border-radius:12px; background:var(--row); overflow:hidden; }
+  .tvcard summary { list-style:none; display:flex; align-items:center; gap:12px; padding:12px 16px; cursor:pointer; }
+  .tvcard summary::-webkit-details-marker { display:none; }
+  .tvcard .ic { width:40px; height:40px; flex:none; border-radius:9px; display:grid; place-items:center;
+                background:linear-gradient(135deg,#5e2a84,#2b0f40); }
+  .tvcard .tt { flex:1; min-width:0; }
+  .tvcard .t1 { font-size:16px; color:var(--text); }
+  .tvcard .t2 { font-size:13px; color:var(--muted); margin-top:2px; }
+  .tvcard .chev { color:#48484a; font-size:20px; transition:transform .2s; }
+  .tvcard[open] .chev { transform:rotate(90deg); }
+  .tvcard ol { margin:0; padding:4px 16px 4px 36px; font-size:14px; line-height:1.5; color:var(--muted); border-top:.5px solid var(--sep); }
+  .tvcard ol li { padding:6px 0; }
+  .tvcard ol b { color:var(--text); font-weight:600; }
+  .tvcard .addr { display:inline-block; margin-top:4px; padding:4px 10px; border-radius:8px; background:#2c2c2e;
+                  color:var(--text); font:600 15px ui-monospace, SFMono-Regular, Menlo, monospace; user-select:all; -webkit-user-select:all; }
+  .tvcard .btns { display:flex; gap:8px; padding:8px 16px 14px; }
+  .tvcard button { flex:1; border:0; border-radius:10px; padding:10px; font-size:15px; font-weight:600; cursor:pointer;
+                   background:#2c2c2e; color:var(--text); }
+  .tvcard button.main { background:var(--accent); color:#fff; }
 </style>
 </head>
 <body>
@@ -111,7 +132,23 @@
 <nav class="tabs" id="tabs"></nav>
 <p class="hint">Нажми на канал. Если источник не отвечает, приложение само попробует следующий — под плеером видно, что происходит. Зелёный кружок — источник работает, красный — нет.</p>
 <div id="lists"></div>
-<footer>версия 23</footer>
+<details class="tvcard" id="tvcard">
+  <summary>
+    <span class="ic"><svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="18" height="12" rx="2"/><path d="M8 21h8M12 17v4"/></svg></span>
+    <span class="tt"><div class="t1">rus tv для телевизора</div><div class="t2">Приложение для Android TV: пульт, программа передач</div></span>
+    <span class="chev">›</span>
+  </summary>
+  <ol>
+    <li>На телевизоре открой Google Play и установи <b>Downloader</b>.</li>
+    <li>В Downloader введи адрес:<br><span class="addr">rustv.bvrhockey.workers.dev/tv</span></li>
+    <li>Нажми «Установить». Если телевизор спросит — разреши установку.</li>
+  </ol>
+  <div class="btns">
+    <button id="tvCopy">Скопировать</button>
+    <button class="main" id="tvApk">Скачать APK</button>
+  </div>
+</details>
+<footer>версия 24</footer>
 </div>
 </div>
 
@@ -122,7 +159,7 @@
   upd(); addEventListener('resize', upd); addEventListener('orientationchange', () => setTimeout(upd, 300));
 })();
 // Telegram держит старую версию в кэше. Сверяем номер версии с сайтом и, если вышла новая, перезагружаемся один раз.
-const APP_VERSION = "23";
+const APP_VERSION = "24";
 (() => {
   fetch('version.txt?t=' + Date.now(), { cache: 'no-store' }).then(r => r.ok ? r.text() : '').then(v => {
     v = (v || '').trim();
@@ -602,6 +639,24 @@ async function play(ci, si, autoNext, tried = 0, retried = false) {
   hls.loadSource(url);
   hls.attachMedia(video);
 }
+
+// Карточка «rus tv для телевизора»
+(() => {
+  const ADDR = 'rustv.bvrhockey.workers.dev/tv', APK = 'https://github.com/bvrgames/BVR_TV/releases/download/tv/rus-tv.apk';
+  const copyBtn = document.getElementById('tvCopy');
+  copyBtn.onclick = () => {
+    const done = () => { copyBtn.textContent = 'Скопировано ✓'; setTimeout(() => copyBtn.textContent = 'Скопировать', 2000); };
+    if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(ADDR).then(done, fallback); else fallback();
+    function fallback() {
+      const t = document.createElement('textarea'); t.value = ADDR; document.body.appendChild(t); t.select();
+      try { document.execCommand('copy'); done(); } catch (e) {} t.remove();
+    }
+  };
+  document.getElementById('tvApk').onclick = () => {
+    const w = window.Telegram && window.Telegram.WebApp;
+    if (w && w.openLink && w.initData) w.openLink(APK); else location.href = APK;
+  };
+})();
 </script>
 </body>
 </html>
