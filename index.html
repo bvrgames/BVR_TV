@@ -33,13 +33,13 @@
   .fsbtn { position:absolute; top:10px; right:10px; width:40px; height:40px; border:0; border-radius:20px; padding:0;
            display:grid; place-items:center; background:rgba(0,0,0,.45); -webkit-backdrop-filter:blur(8px); backdrop-filter:blur(8px); z-index:2; }
   .fsbtn .off { display:none; }
-  body.fs .fsbtn .on { display:none; } body.fs .fsbtn .off { display:inline; }
-  body.fs { overflow:hidden; }
-  body.fs .player { position:fixed; inset:0; z-index:50; display:flex; flex-direction:column; justify-content:center; }
-  body.fs .player .now { display:none; }
-  body.fs .screen { flex:1; display:flex; }
-  body.fs video { max-height:none; height:100%; aspect-ratio:auto; object-fit:contain; }
-  body.fs .fsbtn { top:calc(10px + var(--top-inset, 0px)); }
+  html body.fs .fsbtn .on { display:none; } html body.fs .fsbtn .off { display:inline; }
+  html body.fs { overflow:hidden; }
+  html body.fs .player { position:fixed; inset:0; z-index:50; display:flex; flex-direction:column; justify-content:center; }
+  html body.fs .player .now { display:none; }
+  html body.fs .screen { flex:1; display:flex; }
+  html body.fs video { max-height:none; height:100%; aspect-ratio:auto; object-fit:contain; }
+  html body.fs .fsbtn { top:calc(10px + var(--top-inset, 0px)); }
   .player:fullscreen video { max-height:none; height:100%; }
   .now { display:flex; align-items:center; gap:8px; padding:10px 20px; min-height:42px;
          font-size:15px; color:var(--muted); border-bottom:.5px solid var(--sep); }
@@ -82,16 +82,15 @@
   .hint { margin:14px 20px 0; font-size:13px; line-height:1.4; color:var(--muted); }
 
   /* Планшет/телевизор/телефон боком: плеер слева, каналы справа — список всегда виден и листается отдельно */
-  @media (orientation: landscape) and (min-width: 640px) {
-    header { height:calc(56px + var(--top-inset, 0px)); }
-    .logo img { height:24px; }
-    .layout { display:grid; grid-template-columns:minmax(0, 1.75fr) minmax(300px, 1fr);
-              height:calc(100vh - 56px - var(--top-inset, 0px)); height:calc(100dvh - 56px - var(--top-inset, 0px)); }
-    .player { position:static; align-self:start; }
-    video { max-height:calc(100vh - 56px - 52px - var(--top-inset, 0px)); }
-    .side { overflow-y:auto; -webkit-overflow-scrolling:touch; border-left:.5px solid var(--sep); }
-    .tabs { top:0; }
-  }
+  html.wide header { height:calc(56px + var(--top-inset, 0px)); }
+  html.wide .logo img { height:24px; }
+  html.wide .layout { display:grid; grid-template-columns:minmax(0, 1.75fr) minmax(300px, 1fr);
+  height:calc(100vh - 56px - var(--top-inset, 0px)); height:calc(100dvh - 56px - var(--top-inset, 0px)); }
+  html.wide .player { position:static; align-self:start; }
+  html.wide video { max-height:calc(100vh - 56px - 52px - var(--top-inset, 0px)); }
+  html.wide .side { overflow-y:auto; -webkit-overflow-scrolling:touch; border-left:.5px solid var(--sep); }
+  html.wide .tabs { top:0; }
+
   footer { text-align:center; color:#48484a; font-size:12px; margin:24px 0 20px; }
 </style>
 </head>
@@ -109,11 +108,24 @@
 <nav class="tabs" id="tabs"></nav>
 <p class="hint">Нажми на канал. Если источник не отвечает, приложение само попробует следующий — под плеером видно, что происходит. Зелёный кружок — источник работает, красный — нет.</p>
 <div id="lists"></div>
-<footer>версия 20</footer>
+<footer>версия 21</footer>
 </div>
 </div>
 
 <script>
+// Раскладка «плеер слева, каналы справа», когда экран шире, чем высота (планшет, ТВ, телефон боком)
+(() => {
+  const upd = () => document.documentElement.classList.toggle('wide', innerWidth > innerHeight && innerWidth >= 600);
+  upd(); addEventListener('resize', upd); addEventListener('orientationchange', () => setTimeout(upd, 300));
+})();
+// Telegram держит старую версию в кэше. Сверяем номер версии с сайтом и, если вышла новая, перезагружаемся один раз.
+const APP_VERSION = "21";
+(() => {
+  fetch('version.txt?t=' + Date.now(), { cache: 'no-store' }).then(r => r.ok ? r.text() : '').then(v => {
+    v = (v || '').trim();
+    if (v && v !== APP_VERSION && !location.search.includes('v=' + v)) location.replace(location.pathname + '?v=' + v);
+  }).catch(() => {});
+})();
 const PROXY = "https://rustv.bvrhockey.workers.dev/?u=";
 const viaProxy = (u, ref) => PROXY + encodeURIComponent(u) + (ref ? "&ref=" + encodeURIComponent(ref) : "");
 // Серверу televizor-24 нужен «паспорт» сайта, иначе он отдаёт поток медленно или не отдаёт вовсе
