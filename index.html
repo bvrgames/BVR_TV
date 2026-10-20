@@ -65,7 +65,7 @@
 </div>
 <p class="hint">Нажми на канал. Если источник не отвечает, приложение само попробует следующий — внизу под плеером видно, что происходит. Зелёный кружок — источник работает, красный — нет.</p>
 <div id="lists"></div>
-<footer>версия 13</footer>
+<footer>версия 14</footer>
 
 <script>
 const PROXY = "https://rustv.bvrhockey.workers.dev/?u=";
@@ -122,17 +122,17 @@ const CHANNELS = [
     viaProxy("http://flussonic.linkintel.ru/ren_tv/index.m3u8"),
   ]},
   { sec: "Основные", name: "ТВ-3", short: "ТВ3", color: "#5a2d82", sources: [
+    viaProxy("http://stream.mcquack.net/136/index.m3u8"),
     "https://streaming.televizor-24-tochka.ru/live/18.m3u8",
     "https://adesa.tv/live/tv3_AdesaAdb.m3u8",
     "https://customer-ezarl905qqr949qs.cloudflarestream.com/856e914abd09e036ce9ce4fa649278b2/manifest/video.m3u8",
-    viaProxy("http://stream.mcquack.net/136/index.m3u8"),
     viaProxy("http://178.124.179.122:8080/TB-3/index.m3u8"),
     viaProxy("http://flussonic.linkintel.ru/tv-3/index.m3u8"),
   ]},
   { sec: "Основные", name: "Пятница!", short: "П!", color: "#f2a900", sources: [
+    viaProxy("http://stream.mcquack.net/181/index.m3u8"),
     "https://streaming.televizor-24-tochka.ru/live/19.m3u8",
     "https://vod.tuva.ru/friday/index.m3u8",
-    viaProxy("http://stream.mcquack.net/181/index.m3u8"),
     viaProxy("http://31.148.48.15/Pyatnica/index.m3u8"),
   ]},
   { sec: "Основные", name: "Домашний", short: "Д", color: "#e2007a", sources: [
@@ -156,76 +156,13 @@ const CHANNELS = [
     viaProxy("http://flussonic.linkintel.ru/tvc/index.m3u8"),
     viaProxy("http://31.148.5.241/kanal_10/index.m3u8"),
   ]},
-  { sec: "Основные", name: "Россия 24", short: "24", color: "#0d4ea6", sources: [
-    "https://vgtrkregion-reg.cdnvideo.ru/vgtrk/0/russia24-hd/1080p.m3u8",
-    "https://vgtrkregion-reg.cdnvideo.ru/vgtrk/0/russia24-hd/720p.m3u8",
-    "https://stream.smotrim.ru/hls2/russia24nl_smotrim/playlist_5.m3u8",
-    "https://vgtrkregion-reg.cdnvideo.ru/vgtrk/0/russia24-hd/index.m3u8",
-    "https://live.smotrim.ru/vgtrk/0/russia24-hd/index.m3u8",
-    "https://vgtrkregion-reg.cdnvideo.ru/vgtrk/0/russia24-sd/index.m3u8",
-  ]},
   { sec: "Спорт", name: "Матч ТВ", short: "МАТЧ", color: "#e4002b", sources: [
+    viaProxy("http://stream.mcquack.net/169/index.m3u8"),
     "https://streaming.televizor-24-tochka.ru/live/6.m3u8",
     viaProxy("http://bl.video.matchtv.ru/media/playlist/free_d46d0cf1712c0542ec7fd4f0808f600a_hd/17_89756005/1080/e6bef86de8a133cd7b27deb040758a00/4796141934.m3u8"),
-    viaProxy("http://stream.mcquack.net/169/index.m3u8"),
-  ]},
-  { sec: "Спорт", name: "Матч! Боец", short: "БОЕЦ", color: "#b5121b", sources: [
-    viaProxy("http://stream.mcquack.net/112/index.m3u8"),
-    viaProxy("http://31.148.48.15/Match_Boec/index.m3u8"),
-  ]},
-  { sec: "Спорт", name: "Матч! Арена", short: "АРЕНА", color: "#c8102e", sources: [
-    viaProxy("http://stream.mcquack.net/163/index.m3u8"),
-    viaProxy("http://31.210.208.171:8080/match_arena/index.m3u8?token=+W2MSER"),
-    viaProxy("http://31.148.48.15/Match_Arena_HD/index.m3u8"),
-    viaProxy("http://31.148.48.15/Match_Arena/index.m3u8"),
-  ]},
-  { sec: "Спорт", name: "Матч! Игра", short: "ИГРА", color: "#d22630", sources: [
-    viaProxy("http://stream.mcquack.net/188/index.m3u8"),
-    viaProxy("http://31.148.48.15/Match_Igra_HD/index.m3u8"),
-    viaProxy("http://31.148.48.15/Match_Igra/index.m3u8"),
   ]},
   { sec: "Спорт", name: "Матч! Премьер", short: "ПРЕМ", color: "#a50021", sources: [
     viaProxy("http://stream.mcquack.net/193/index.m3u8"),
-  ]},
-  { sec: "Спорт", name: "Матч! Футбол 2", short: "Ф2", color: "#8a0f1d", sources: [
-    viaProxy("http://stream.mcquack.net/142/index.m3u8"),
-  ]},
-  { sec: "Спорт", name: "Матч! Футбол 3", short: "Ф3", color: "#8a0f1d", sources: [
-    viaProxy("http://185.57.68.33/110/index.m3u8"),
-    viaProxy("http://176.100.46.245:90/matchfootball3/index.m3u8"),
-  ]},
-  { sec: "Спорт", name: "Матч! Страна", short: "СТРАНА", color: "#c41230", sources: [
-    viaProxy("http://stream.mcquack.net/143/index.m3u8"),
-    viaProxy("http://ukr.ukrainske.tv/134/keytvainua/video.m3u8"),
-    viaProxy("http://31.148.48.15/Match_Strana/index.m3u8"),
-    viaProxy("http://31.148.48.15/Match_Nash_Sport/index.m3u8"),
-  ]},
-  { sec: "Спорт", name: "КХЛ", short: "КХЛ", color: "#0a3d91", sources: [
-    viaProxy("http://stream.mcquack.net/166/index.m3u8"),
-    viaProxy("http://176.118.197.101/KHL/index.m3u8"),
-    viaProxy("http://31.148.48.15/KHL_TV/index.m3u8"),
-  ]},
-  { sec: "Спорт", name: "КХЛ Prime", short: "KHL+", color: "#0a3d91", sources: [
-    viaProxy("http://stream.mcquack.net/178/index.m3u8"),
-    viaProxy("http://31.148.48.15/KHL_TV_HD/index.m3u8"),
-  ]},
-  { sec: "Спорт", name: "MMA", short: "MMA", color: "#222", sources: [
-    "https://streams2.sofast.tv/vglive-sk-462904/playlist.m3u8",
-    viaProxy("http://31.148.48.15/M1_Global/index.m3u8"),
-  ]},
-  { sec: "Спорт", name: "Удар", short: "УДАР", color: "#b00000", sources: [
-    viaProxy("http://stream.mcquack.net/279/index.m3u8"),
-    viaProxy("http://5.188.159.128:8070/udar/index.m3u8"),
-  ]},
-  { sec: "Спорт", name: "Eurosport 1", short: "ES1", color: "#003b9d", sources: [
-    viaProxy("http://stream.mcquack.net/176/index.m3u8"),
-    viaProxy("http://178.134.1.158:8081/eurosport/index.m3u8"),
-  ]},
-  { sec: "Спорт", name: "Setanta Sports 1", short: "SET1", color: "#ff6a00", sources: [
-    viaProxy("http://stream.mcquack.net/234/index.m3u8"),
-  ]},
-  { sec: "Спорт", name: "Старт", short: "СТАРТ", color: "#00a3e0", sources: [
-    "https://bl.webcaster.pro/media/playlist/api_free_fd14ed34164a52d1090e4cb9db93683f/4_79276517/480p/d33bbf3e6ac7c41524eae5d1c3d9258d/4873167902.m3u8",
   ]},
   { sec: "Кино и сериалы", name: "Дом Кино", short: "ДК", color: "#7a1f2b", sources: [
     "https://streaming.thestream.cyou/live/44.m3u8",
@@ -239,10 +176,6 @@ const CHANNELS = [
     "https://cityeden.catcast.tv/content/41331/index.m3u8",
     viaProxy("http://stream.mcquack.net/265/index.m3u8"),
     viaProxy("http://176.118.197.101/Kinokomediya/index.m3u8"),
-  ]},
-  { sec: "Кино и сериалы", name: "Кинопремьера", short: "ПРЕМ", color: "#8e44ad", sources: [
-    viaProxy("http://5.188.159.128:8070/KINOPREMIERA/index.m3u8"),
-    viaProxy("http://185.121.1.163:8083/Kinopremyera/index.m3u8"),
   ]},
   { sec: "Кино и сериалы", name: "Русский детектив", short: "РД", color: "#2c3e50", sources: [
     viaProxy("http://stream.mcquack.net/204/index.m3u8"),
@@ -272,10 +205,6 @@ const CHANNELS = [
     "https://cdn.ntv.ru/th_serial/playlist.m3u8",
     viaProxy("http://stream.mcquack.net/301/index.m3u8"),
   ]},
-  { sec: "Кино и сериалы", name: "Мосфильм", short: "МФ", color: "#b8860b", sources: [
-    viaProxy("http://stream.mcquack.net/369/index.m3u8"),
-    viaProxy("http://185.121.1.163:8083/Mosfilm/index.m3u8"),
-  ]},
   { sec: "Развлечения и музыка", name: "ТНТ4", short: "ТНТ4", color: "#7b2ff7", sources: [
     "https://bl.rutube.ru/livestream/c801a7087e29a097192d74c270fbc6c1/index.m3u8?s=zhnm9INH7ysOhS2LQStm2A&e=2070623480&scheme=https",
     viaProxy("http://stream.mcquack.net/106/index.m3u8"),
@@ -284,9 +213,9 @@ const CHANNELS = [
     viaProxy("http://31.148.48.15/TNT4/index.m3u8"),
   ]},
   { sec: "Развлечения и музыка", name: "Ю", short: "Ю", color: "#ff4fa3", sources: [
+    "https://flussonic.mkpnet.ru/tv-3b21847ece4b1c19/video.m3u8",
     "https://bl.rutube.ru/livestream/5c9327074e25ca86f3111d4085cbbb65/index.m3u8?e=2066519758&s=9cPc1rCGu6M932eqrifRhQ&scheme=https",
     "https://cdn-01.bonus-tv.ru/u/index.m3u8",
-    "https://flussonic.mkpnet.ru/tv-3b21847ece4b1c19/video.m3u8",
     "https://strm.yandex.ru/kal/utv/utv0.m3u8",
     "https://cdn-01.bonus-tv.ru/u/playlist.m3u8",
     viaProxy("http://31.148.48.15/U/index.m3u8"),
@@ -337,10 +266,6 @@ const CHANNELS = [
     viaProxy("http://hls127.freeott.top:8080/Shanson_Tv/video.m3u8"),
     viaProxy("http://46.53.200.153:7777/play/Shanson_TV/index.m3u8"),
   ]},
-  { sec: "Развлечения и музыка", name: "Ностальгия", short: "НОС", color: "#6d4c41", sources: [
-    viaProxy("http://176.118.197.101/Nostalgiya/index.m3u8"),
-    viaProxy("http://31.148.48.15/Nostalgiya/index.m3u8"),
-  ]},
   { sec: "Детям", name: "Карусель", short: "КАР", color: "#f39c12", sources: [
     "https://stream.smotrim.ru/hls2/karusel/playlist_3.m3u8",
     "https://streaming.televizor-24-tochka.ru/live/232.m3u8",
@@ -349,24 +274,14 @@ const CHANNELS = [
     viaProxy("http://185.37.150.46/Karusel/index.m3u8"),
     viaProxy("http://flussonic.linkintel.ru/Karusel/index.m3u8"),
   ]},
-  { sec: "Детям", name: "Мульт", short: "МУЛЬТ", color: "#27ae60", sources: [
-    viaProxy("http://stream.mcquack.net/232/index.m3u8"),
-    viaProxy("http://flussonic.linkintel.ru/Mult/index.m3u8"),
-    viaProxy("http://31.148.48.15/Mult_HD/index.m3u8"),
-    viaProxy("http://31.148.48.15/Mult/index.m3u8"),
-  ]},
   { sec: "Детям", name: "СТС Kids", short: "KIDS", color: "#ff7a00", sources: [
     viaProxy("http://stream.mcquack.net/197/index.m3u8"),
     viaProxy("http://hls127.freeott.top:8080/STS_Kids/video.m3u8"),
     viaProxy("http://45.145.32.13:20440/ctc_kids_hd/index.m3u8?token=test"),
     viaProxy("http://31.148.48.15/STS_Kids_HD/index.m3u8"),
   ]},
-  { sec: "Детям", name: "О!", short: "О!", color: "#ff2d55", sources: [
-    viaProxy("http://stream.mcquack.net/60/index.m3u8"),
-    viaProxy("http://88.212.15.17/live/test_telekanal_o/playlist.m3u8"),
-  ]},
-  { sec: "Детям", name: "Мультиландия", short: "МЛ", color: "#2ecc71", sources: [
-    viaProxy("http://31.148.48.15/Multilandiya/index.m3u8"),
+  { sec: "Детям", name: "Nickelodeon", short: "nick", color: "#ff6f00", sources: [
+    viaProxy("http://stream.mcquack.net/443/index.m3u8"),
   ]},
 ];
 
@@ -441,7 +356,7 @@ function stop() {
 }
 
 // tried — сколько ссылок уже перебрали, чтобы обойти круг один раз, начиная с запомненной
-async function play(ci, si, autoNext, tried = 0) {
+async function play(ci, si, autoNext, tried = 0, retried = false) {
   const ch = CHANNELS[ci];
   if (tried >= ch.sources.length) {
     setStatus('<b>' + ch.name + '</b> · все источники сейчас не отвечают, попробуй позже');
@@ -483,7 +398,15 @@ async function play(ci, si, autoNext, tried = 0) {
   const start = () => video.play().catch(() => { video.muted = true; video.play().catch(() => {}); });
 
   // Рабочим считаем источник, только когда видео реально пошло
-  timer = setTimeout(fail, 15000);
+  // Потоки через прокси раскачиваются дольше, поэтому ждём их дольше.
+  // Если картинка уже появилась, но видео не пошло — один раз перезапускаем этот же источник (обычно со второго раза идёт).
+  timer = setTimeout(() => {
+    if (my !== attempt || done) return;
+    if (!retried && (video.readyState >= 2 || firstT !== null)) {
+      setStatus('<b>' + ch.name + '</b> · источник ' + (si + 1) + ' медленный, перезапускаю…');
+      play(ci, si, autoNext, tried, true);
+    } else fail();
+  }, url.startsWith(PROXY) ? 25000 : 15000);
   video.onerror = fail;
   video.ontimeupdate = () => {
     if (my !== attempt) return;
