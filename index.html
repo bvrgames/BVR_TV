@@ -38,16 +38,20 @@
   h2 { margin:24px 20px 8px; font-size:13px; font-weight:400; color:var(--muted); text-transform:uppercase; letter-spacing:.02em; }
   .list { margin:0 16px; border-radius:12px; overflow:hidden; background:var(--row); }
   .ch { display:flex; align-items:center; gap:12px; padding:10px 16px; position:relative; cursor:pointer; }
-  .ch + .ch::before { content:""; position:absolute; top:0; left:72px; right:0; border-top:.5px solid var(--sep); }
+  .ch + .ch::before { content:""; position:absolute; top:0; left:92px; right:0; border-top:.5px solid var(--sep); }
   .ch:active, .ch.active { background:var(--row-active); }
-  .badge { width:44px; height:44px; flex:none; border-radius:10px; display:grid; place-items:center;
+  .badge { width:64px; height:40px; flex:none; border-radius:9px; display:grid; place-items:center;
            font-size:14px; font-weight:800; letter-spacing:-.02em; color:#fff; }
+  .badge.has-logo { background:#fff; }
+  .badge.has-logo.dark { background:#2c2c2e; }
+  /* Все логотипы — одна картинка-спрайт (~50 КБ), грузится один раз и берётся из кэша */
+  .lg { width:56px; height:28px; background:url(logos.webp?v=1) no-repeat 0 0 / 56px auto; }
   .info { flex:1; min-width:0; }
   .name { font-size:17px; font-weight:500; }
   .sub { font-size:13px; color:var(--muted); margin-top:1px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
   .ch.active .name { color:var(--accent); }
   .ch { flex-wrap:wrap; }
-  .dots { display:flex; flex-wrap:wrap; gap:6px; width:100%; padding-left:56px; margin-top:-2px; }
+  .dots { display:flex; flex-wrap:wrap; gap:6px; width:100%; padding-left:76px; margin-top:-2px; }
   .dot { width:22px; height:22px; border-radius:11px; border:0; padding:0; font-size:11px; font-weight:600;
          color:var(--muted); background:rgba(120,120,128,.24); }
   .dot.ok { background:var(--ok); color:#002; }
@@ -75,7 +79,7 @@
 </div>
 <p class="hint">Нажми на канал. Если источник не отвечает, приложение само попробует следующий — внизу под плеером видно, что происходит. Зелёный кружок — источник работает, красный — нет.</p>
 <div id="lists"></div>
-<footer>версия 17</footer>
+<footer>версия 18</footer>
 
 <script>
 const PROXY = "https://rustv.bvrhockey.workers.dev/?u=";
@@ -347,6 +351,7 @@ const store = {
 const video = document.getElementById('v');
 const now = document.getElementById('now');
 const nowBox = document.getElementById('nowBox');
+const LOGOS = {"Первый": [0, 0], "Россия 1": [1, 0], "НТВ": [2, 0], "СТС": [3, 0], "ТНТ": [4, 0], "Пятый": [5, 0], "РЕН ТВ": [6, 0], "ТВ-3": [7, 0], "Пятница!": [8, 0], "Домашний": [9, 0], "Звезда": [10, 0], "ТВ Центр": [11, 0], "Матч ТВ": [12, 0], "Дом Кино": [13, 1], "Кинохит": [14, 0], "Кинокомедия": [15, 0], "Русский детектив": [16, 0], "Русский роман": [17, 0], "Мужское кино": [18, 0], "НТВ Хит": [19, 0], "ТНТ4": [20, 0], "Ю": [21, 0], "Че": [22, 0], "Суббота!": [23, 0], "СТС Love": [24, 0], "2x2": [25, 0], "Муз-ТВ": [26, 0], "RU.TV": [27, 0], "Карусель": [28, 0]};
 const lists = document.getElementById('lists');
 const sections = {};
 const nativeHls = !!video.canPlayType('application/vnd.apple.mpegurl');
@@ -368,7 +373,9 @@ CHANNELS.forEach((ch, ci) => {
   const row = document.createElement('div');
   row.className = 'ch'; row.id = 'ch' + ci;
   row.innerHTML =
-    '<div class="badge" style="background:' + ch.color + ';font-size:' + (ch.short.length > 5 ? 9 : ch.short.length > 3 ? 11 : 14) + 'px">' + ch.short + '</div>' +
+    (LOGOS[ch.name]
+      ? '<div class="badge has-logo' + (LOGOS[ch.name][1] ? ' dark' : '') + '"><i class="lg" style="background-position:0 -' + (LOGOS[ch.name][0] * 28) + 'px"></i></div>'
+      : '<div class="badge" style="background:' + ch.color + ';font-size:' + (ch.short.length > 5 ? 9 : ch.short.length > 3 ? 11 : 14) + 'px">' + ch.short + '</div>') +
     '<div class="info"><div class="name">' + ch.name + '</div><div class="sub" id="sub' + ci + '">Прямой эфир</div></div>' +
     '<div class="dots"></div>';
   const dots = row.querySelector('.dots');
