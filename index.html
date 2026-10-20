@@ -18,13 +18,15 @@
          -webkit-font-smoothing:antialiased; padding-bottom:env(safe-area-inset-bottom); }
 
   /* Шапка: единственное фиолетовое место, как на аватарке */
-  header { display:flex; justify-content:center; align-items:center; height:84px; background:#000; }
+  header { display:flex; justify-content:center; align-items:center; height:calc(84px + var(--top-inset, 0px)); padding-top:var(--top-inset, 0px); background:#000; }
   /* Круг свечения: размером примерно с логотип, по центру под ним */
   .logo { position:relative; display:inline-block; }
   .logo::before { content:""; position:absolute; left:50%; top:50%; width:80%; aspect-ratio:1; transform:translate(-50%,-50%);
     border-radius:50%; background:radial-gradient(closest-side, rgba(140,14,150,.95) 0%, rgba(95,10,110,.6) 45%, rgba(45,0,60,.25) 75%, rgba(0,0,0,0) 100%); }
   .logo img { position:relative; height:32px; width:auto; display:block; }
-  .player { position:sticky; top:0; z-index:5; background:#000; }
+  .player { position:sticky; top:var(--top-inset, 0px); z-index:5; background:#000; }
+  /* Чёрная полоска под кнопками Telegram в полноэкранном режиме, чтобы плеер не уезжал под них */
+  body::before { content:""; position:fixed; top:0; left:0; right:0; height:var(--top-inset, 0px); background:#000; z-index:6; }
   video { width:100%; aspect-ratio:16/9; display:block; background:#000; }
   .now { display:flex; align-items:center; gap:8px; padding:10px 20px; min-height:42px;
          font-size:15px; color:var(--muted); border-bottom:.5px solid var(--sep); }
@@ -73,7 +75,7 @@
 </div>
 <p class="hint">Нажми на канал. Если источник не отвечает, приложение само попробует следующий — внизу под плеером видно, что происходит. Зелёный кружок — источник работает, красный — нет.</p>
 <div id="lists"></div>
-<footer>версия 16</footer>
+<footer>версия 17</footer>
 
 <script>
 const PROXY = "https://rustv.bvrhockey.workers.dev/?u=";
@@ -315,8 +317,24 @@ const CHANNELS = [
 
 window.tgReady = () => {
   const tg = window.Telegram && window.Telegram.WebApp;
-  if (!tg) return;
-  try { tg.ready(); tg.expand(); tg.setHeaderColor && tg.setHeaderColor('#0a0010'); tg.setBackgroundColor && tg.setBackgroundColor('#000000'); } catch (e) {}
+  if (!tg || !tg.initData && tg.platform === 'unknown') return;
+  const at = (v) => !tg.isVersionAtLeast || tg.isVersionAtLeast(v);
+  try { tg.ready(); tg.expand(); } catch (e) {}
+  try { tg.setHeaderColor && tg.setHeaderColor('#000000'); tg.setBackgroundColor && tg.setBackgroundColor('#000000'); } catch (e) {}
+  try { at('7.7') && tg.disableVerticalSwipes && tg.disableVerticalSwipes(); } catch (e) {}  // свайп по списку не закрывает приложение
+  // Во весь экран — на телефонах, планшетах и Android TV. На компьютере не трогаем, чтобы не разворачивать весь Telegram.
+  const mobile = /android|ios/i.test(tg.platform || '');
+  const goFull = () => { try { if (mobile && at('8.0') && tg.requestFullscreen && !tg.isFullscreen) tg.requestFullscreen(); } catch (e) {} };
+  goFull();
+  // Некоторые устройства разрешают полный экран только после касания — пробуем ещё раз при первом нажатии
+  document.addEventListener('click', goFull, { once: true, capture: true });
+  // Отступы под вырез экрана и кнопки Telegram, которые в полноэкранном режиме лежат поверх приложения
+  const insets = () => {
+    const s = tg.safeAreaInset || {}, c = tg.contentSafeAreaInset || {};
+    document.documentElement.style.setProperty('--top-inset', ((s.top || 0) + (c.top || 0)) + 'px');
+  };
+  insets();
+  try { ['safeAreaChanged', 'contentSafeAreaChanged', 'fullscreenChanged', 'viewportChanged'].forEach(ev => tg.onEvent(ev, insets)); } catch (e) {}
 };
 if (window.Telegram) tgReady();
 
