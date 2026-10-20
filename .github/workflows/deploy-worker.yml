@@ -15,7 +15,29 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: cloudflare/wrangler-action@v3
+      - uses: actions/setup-node@v4
         with:
-          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          node-version: 22
+      - name: Проверить секреты
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          ok=1
+          [ -z "$CLOUDFLARE_API_TOKEN" ] && echo "::error::Нет секрета CLOUDFLARE_API_TOKEN" && ok=0
+          [ -z "$CLOUDFLARE_ACCOUNT_ID" ] && echo "::error::Нет секрета CLOUDFLARE_ACCOUNT_ID" && ok=0
+          [ "$ok" = 1 ] && echo "::notice::Оба секрета на месте (длина токена ${#CLOUDFLARE_API_TOKEN}, ID ${#CLOUDFLARE_ACCOUNT_ID})"
+          [ "$ok" = 1 ]
+      - name: Выложить
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          set -o pipefail
+          if npx --yes wrangler@4 deploy 2>&1 | tee out.txt; then
+            echo "::notice::Прокси выложен: $(grep -o 'https://[^ ]*workers.dev' out.txt | head -1)"
+          else
+            msg=$(grep -E 'ERROR|error|✘|Authentication|permission' out.txt | head -5 | tr '\n' ' ' | sed 's/%/%25/g')
+            echo "::error::Wrangler: ${msg:-$(tail -3 out.txt | tr '\n' ' ')}"
+            exit 1
+          fi
