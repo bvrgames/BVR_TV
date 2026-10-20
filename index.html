@@ -1,0 +1,149 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Русское ТВ</title>
+<script src="https://telegram.org/js/telegram-web-app.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/hls.js/1.5.13/hls.min.js"></script>
+<style>
+  :root { --bg:#111; --card:#1c1c1e; --text:#f2f2f2; --muted:#9a9a9f; --accent:#2f80ed; --ok:#2ecc71; --bad:#e74c3c; }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:var(--text); font:15px/1.4 -apple-system,system-ui,sans-serif; }
+  .player { position:sticky; top:0; background:#000; z-index:2; }
+  video { width:100%; aspect-ratio:16/9; display:block; background:#000; }
+  .now { padding:8px 16px; font-size:13px; color:var(--muted); background:#000; min-height:34px; }
+  .now b { color:var(--text); }
+  .list { padding:12px 16px 32px; display:grid; gap:10px; }
+  .ch { background:var(--card); border-radius:12px; padding:12px; }
+  .ch.active { outline:2px solid var(--accent); }
+  .ch h3 { margin:0 0 8px; font-size:17px; }
+  .src { display:flex; flex-wrap:wrap; gap:6px; }
+  .src button { border:0; border-radius:8px; padding:7px 10px; font-size:13px; background:#2c2c2e; color:var(--text); }
+  .src button.http { color:var(--muted); }
+  .src button.ok { background:var(--ok); color:#000; }
+  .src button.bad { background:var(--bad); }
+  .src button.playing { outline:2px solid #fff; }
+  .hint { font-size:12px; color:var(--muted); padding:0 16px; }
+</style>
+</head>
+<body>
+<div class="player">
+  <video id="v" controls playsinline autoplay></video>
+  <div class="now" id="now">Выбери канал</div>
+</div>
+<p class="hint">Нажми на канал: он запустит первую ссылку, а если не пойдёт, сам попробует следующую. Зелёная кнопка — ссылка работает, красная — нет. Ссылки с пометкой http Telegram обычно блокирует.</p>
+<div class="list" id="list"></div>
+
+<script>
+const CHANNELS = [
+  { name: "Первый", sources: [
+    "https://serv30.vintera.tv/restream/1_old/playlist.m3u8",
+    "https://streaming.thestream.cyou/live/210.m3u8",
+    "http://45.153.24.78/1TV/index.m3u8",
+  ]},
+  { name: "Россия 1", sources: [
+    "https://live.smotrim.ru/vgtrk/0/russia1-hd/index.m3u8",
+    "https://stream.smotrim.ru/hls2/russia_hd/playlist_6.m3u8",
+    "https://vgtrkregion-reg.cdnvideo.ru/vgtrk/0/russia1-hd/index.m3u8",
+  ]},
+  { name: "НТВ", sources: [
+    "https://cdn.ntv.ru/ntv-msk_hd/index.m3u8",
+    "https://cdn-dvr.ntv.ru/ntv0_hd/index.m3u8",
+    "https://cdn.ntv.ru/ntv0/index.m3u8",
+    "https://bl.rutube.ru/livestream/c37cd74192c6bc3d6cd6077c0c4fd686/index.m3u8?e=2077050299&s=HSWg81JrQ3OqmwuWkEIDAQ&scheme=https",
+  ]},
+  { name: "СТС", sources: [
+    "https://streaming.televizor-24-tochka.ru/live/296.m3u8",
+    "http://stream.mcquack.net/138/index.m3u8",
+  ]},
+  { name: "ТНТ", sources: [
+    "https://bl.rutube.ru/livestream/546602986e6a424d74d594876ddb3f04/index.m3u8?s=K-z3nz49R1oGQ-5yPSd8pg&e=2082157024&scheme=https",
+    "https://streaming.televizor-24-tochka.ru/live/38.m3u8",
+    "http://stream.mcquack.net/135/index.m3u8",
+  ]},
+];
+
+const tg = window.Telegram && window.Telegram.WebApp;
+if (tg) { try { tg.ready(); tg.expand(); } catch (e) {} }
+
+const video = document.getElementById('v');
+const now = document.getElementById('now');
+const list = document.getElementById('list');
+const nativeHls = video.canPlayType('application/vnd.apple.mpegurl');
+let hls = null, timer = null, attempt = 0;
+
+CHANNELS.forEach((ch, ci) => {
+  const card = document.createElement('div');
+  card.className = 'ch'; card.id = 'ch' + ci;
+  card.innerHTML = '<h3>' + ch.name + '</h3><div class="src"></div>';
+  const box = card.querySelector('.src');
+  ch.sources.forEach((url, si) => {
+    const b = document.createElement('button');
+    b.textContent = 'Ссылка ' + (si + 1) + (url.startsWith('http:') ? ' (http)' : '');
+    if (url.startsWith('http:')) b.classList.add('http');
+    b.id = 'b' + ci + '_' + si;
+    b.onclick = (e) => { e.stopPropagation(); play(ci, si, false); };
+    box.appendChild(b);
+  });
+  card.onclick = () => play(ci, 0, true);
+  list.appendChild(card);
+});
+
+function mark(ci, si, cls) {
+  const b = document.getElementById('b' + ci + '_' + si);
+  if (b) { b.classList.remove('ok', 'bad'); if (cls) b.classList.add(cls); }
+}
+
+function stop() {
+  clearTimeout(timer);
+  if (hls) { hls.destroy(); hls = null; }
+  video.removeAttribute('src'); video.load();
+}
+
+function play(ci, si, autoNext) {
+  const ch = CHANNELS[ci];
+  if (si >= ch.sources.length) { now.innerHTML = '<b>' + ch.name + '</b>: ни одна ссылка не запустилась'; return; }
+  const my = ++attempt;
+  stop();
+  document.querySelectorAll('.ch').forEach(e => e.classList.remove('active'));
+  document.querySelectorAll('.src button').forEach(e => e.classList.remove('playing'));
+  document.getElementById('ch' + ci).classList.add('active');
+  document.getElementById('b' + ci + '_' + si).classList.add('playing');
+  now.innerHTML = '<b>' + ch.name + '</b>: подключаюсь к ссылке ' + (si + 1) + '…';
+
+  const url = ch.sources[si];
+  let done = false;
+  const fail = (why) => {
+    if (done || my !== attempt) return; done = true;
+    mark(ci, si, 'bad');
+    now.innerHTML = '<b>' + ch.name + '</b>: ссылка ' + (si + 1) + ' не работает (' + why + ')';
+    if (autoNext) setTimeout(() => { if (my === attempt) play(ci, si + 1, true); }, 600);
+  };
+  const ok = () => {
+    if (done || my !== attempt) return; done = true;
+    clearTimeout(timer);
+    mark(ci, si, 'ok');
+    now.innerHTML = '<b>' + ch.name + '</b>: идёт, ссылка ' + (si + 1) + (video.muted ? ' — включи звук в плеере' : '');
+  };
+  const start = () => video.play().catch(() => { video.muted = true; video.play().catch(() => {}); });
+  timer = setTimeout(() => fail('нет ответа 15 сек'), 15000);
+  video.onplaying = ok;
+  video.onerror = () => fail('ошибка плеера');
+
+  if (nativeHls) {
+    video.src = url;
+    start();
+  } else if (window.Hls && Hls.isSupported()) {
+    hls = new Hls({ manifestLoadingTimeOut: 10000 });
+    hls.on(Hls.Events.ERROR, (e, d) => { if (d.fatal) fail(d.details || 'ошибка'); });
+    hls.loadSource(url);
+    hls.attachMedia(video);
+    hls.on(Hls.Events.MANIFEST_PARSED, () => start());
+  } else {
+    fail('браузер не поддерживает');
+  }
+}
+</script>
+</body>
+</html>
