@@ -27,7 +27,7 @@
   .player { position:sticky; top:var(--top-inset, 0px); z-index:5; background:#000; }
   /* Чёрная полоска под кнопками Telegram в полноэкранном режиме, чтобы плеер не уезжал под них */
   body::before { content:""; position:fixed; top:0; left:0; right:0; height:var(--top-inset, 0px); background:#000; z-index:6; }
-  video { width:100%; aspect-ratio:16/9; display:block; background:#000; }
+  video { width:100%; aspect-ratio:16/9; max-height:40vh; display:block; background:#000; }
   .now { display:flex; align-items:center; gap:8px; padding:10px 20px; min-height:42px;
          font-size:15px; color:var(--muted); border-bottom:.5px solid var(--sep); }
   .now b { color:var(--text); font-weight:600; }
@@ -59,7 +59,7 @@
   .dot.cur { box-shadow:0 0 0 2px var(--text); }
   .ch:not(.active) .dots { display:none; }
 
-  .tabs { display:flex; gap:8px; overflow-x:auto; padding:10px 16px; background:#000; border-bottom:.5px solid var(--sep);
+  .tabs { position:sticky; top:calc(var(--top-inset, 0px) + var(--player-h, 0px)); z-index:4; display:flex; gap:8px; overflow-x:auto; padding:10px 16px; background:#000; border-bottom:.5px solid var(--sep);
           scrollbar-width:none; -webkit-overflow-scrolling:touch; }
   .tabs::-webkit-scrollbar { display:none; }
   .tab { flex:none; border:0; border-radius:16px; padding:7px 14px; font:500 15px/1 -apple-system, system-ui, sans-serif;
@@ -67,19 +67,35 @@
   .tab.on { background:#fff; color:#000; }
   .sec[hidden] { display:none; }
   .hint { margin:14px 20px 0; font-size:13px; line-height:1.4; color:var(--muted); }
+
+  /* Планшет/телевизор/телефон боком: плеер слева, каналы справа — список всегда виден и листается отдельно */
+  @media (orientation: landscape) and (min-width: 640px) {
+    header { height:calc(56px + var(--top-inset, 0px)); }
+    .logo img { height:24px; }
+    .layout { display:grid; grid-template-columns:minmax(0, 1.75fr) minmax(300px, 1fr);
+              height:calc(100vh - 56px - var(--top-inset, 0px)); height:calc(100dvh - 56px - var(--top-inset, 0px)); }
+    .player { position:static; align-self:start; }
+    video { max-height:calc(100vh - 56px - 52px - var(--top-inset, 0px)); }
+    .side { overflow-y:auto; -webkit-overflow-scrolling:touch; border-left:.5px solid var(--sep); }
+    .tabs { top:0; }
+  }
   footer { text-align:center; color:#48484a; font-size:12px; margin:24px 0 20px; }
 </style>
 </head>
 <body>
 <header><span class="logo"><img src="logo.svg?v=2" alt="rus tv" width="85" height="32"></span></header>
-<div class="player">
+<div class="layout">
+<div class="player" id="player">
   <video id="v" controls playsinline autoplay referrerpolicy="no-referrer"></video>
   <div class="now" id="nowBox"><span class="live">LIVE</span><span id="now">Выбери канал</span></div>
-  <nav class="tabs" id="tabs"></nav>
 </div>
-<p class="hint">Нажми на канал. Если источник не отвечает, приложение само попробует следующий — внизу под плеером видно, что происходит. Зелёный кружок — источник работает, красный — нет.</p>
+<div class="side">
+<nav class="tabs" id="tabs"></nav>
+<p class="hint">Нажми на канал. Если источник не отвечает, приложение само попробует следующий — под плеером видно, что происходит. Зелёный кружок — источник работает, красный — нет.</p>
 <div id="lists"></div>
-<footer>версия 18</footer>
+<footer>версия 19</footer>
+</div>
+</div>
 
 <script>
 const PROXY = "https://rustv.bvrhockey.workers.dev/?u=";
@@ -413,6 +429,14 @@ function showTab(sec) {
   tabsBox.appendChild(b);
 });
 showTab(sections[store.get('tab')] || store.get('tab') === 'Все' ? store.get('tab') : 'Основные');
+
+// Высота плеера — чтобы кнопки разделов прилипали прямо под ним
+(() => {
+  const pl = document.getElementById('player');
+  const upd = () => document.documentElement.style.setProperty('--player-h', pl.offsetHeight + 'px');
+  upd(); window.addEventListener('resize', upd);
+  if (window.ResizeObserver) new ResizeObserver(upd).observe(pl);
+})();
 
 function mark(ci, si, cls) {
   const d = document.getElementById('d' + ci + '_' + si);
