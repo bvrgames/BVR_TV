@@ -1,4 +1,4 @@
-# Настройки прокси rus tv для Cloudflare (воркер rustv). Выкладывается автоматически.
+# Настройки прокси rus tv для Cloudflare (воркер rustv). Выкладывается автоматически вместе с ботом.
 name = "rustv"
 main = "worker.js"
 compatibility_date = "2026-10-01"
