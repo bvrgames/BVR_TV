@@ -1,0 +1,74 @@
+plugins {
+    id 'com.android.application'
+}
+
+// Веб-приложение и заставка лежат в корне репозитория — берём их оттуда, чтобы не держать копии
+def genDir = layout.buildDirectory.dir('generated/rustv')
+tasks.register('copyWebFiles', Copy) {
+    from(rootProject.file('../index.html')) { into 'assets' }
+    from(rootProject.file('../logos.webp')) { into 'assets' }
+    from(rootProject.file('../tv/splash/splash.mp4')) { into 'res/raw' }
+    into genDir
+}
+preBuild.dependsOn 'copyWebFiles'
+
+android {
+    namespace 'com.bvrgames.rustv'
+    compileSdk 35
+
+    defaultConfig {
+        applicationId 'com.bvrgames.rustv'
+        minSdk 21
+        targetSdk 35
+        versionCode((System.getenv('VERSION_CODE') ?: '1') as int)
+        versionName "1.${System.getenv('VERSION_CODE') ?: '0'}"
+    }
+
+    sourceSets {
+        main {
+            assets.srcDirs += genDir.get().dir('assets').asFile
+            res.srcDirs += genDir.get().dir('res').asFile
+        }
+    }
+
+    signingConfigs {
+        release {
+            def ks = System.getenv('KS_FILE')
+            if (ks) {
+                storeFile file(ks)
+                storePassword System.getenv('KS_PASS')
+                keyAlias 'rustv'
+                keyPassword System.getenv('KS_PASS')
+            }
+        }
+    }
+
+    buildTypes {
+        release {
+            minifyEnabled true
+            shrinkResources true
+            proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
+            signingConfig System.getenv('KS_FILE') ? signingConfigs.release : signingConfigs.debug
+        }
+    }
+
+    buildFeatures { buildConfig true }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_1_8
+        targetCompatibility JavaVersion.VERSION_1_8
+    }
+
+    lint {
+        checkReleaseBuilds false
+        abortOnError false
+    }
+}
+
+dependencies {
+    def media3 = '1.5.1'
+    implementation "androidx.media3:media3-exoplayer:$media3"
+    implementation "androidx.media3:media3-exoplayer-hls:$media3"
+    implementation "androidx.media3:media3-ui:$media3"
+    implementation 'androidx.annotation:annotation-experimental:1.4.1'
+}
