@@ -31,7 +31,6 @@ final class SourceWheel extends View {
     private Listener listener;
 
     private final Paint num = new Paint(Paint.ANTI_ALIAS_FLAG);
-    private final Paint dot = new Paint(Paint.ANTI_ALIAS_FLAG);
     private Glass[] glass = new Glass[0];
     private float downY, downX;
     private long downT;
@@ -113,7 +112,9 @@ final class SourceWheel extends View {
                 boolean sel = i == selected;
                 int st = i < status.length ? status[i] : UNKNOWN;
                 int glowColor = sel && focusedLook ? 0xFFBF5AF2 : 0;
-                g.glow(glowColor).strength(sel ? (focusedLook ? 1.8f : 1.35f) : 1f);
+                // цвет как раньше: зелёный — работает, красный — не отвечает, серый — ещё не проверен
+                int tintColor = i == playing || st == OK ? 0xFF30D158 : st == BAD ? 0xFFFF453A : 0xFF8E8E93;
+                g.tint(tintColor).glow(glowColor).strength(sel ? (focusedLook ? 1.8f : 1.35f) : 1f);
                 g.setAlpha(Math.round(al * 255));
                 c.save();
                 c.translate(cx, y);
@@ -126,15 +127,6 @@ final class SourceWheel extends View {
                 num.setAlpha(Math.round(al * 255));
                 Paint.FontMetrics fm = num.getFontMetrics();
                 c.drawText(String.valueOf(i + 1), cx, y - (fm.ascent + fm.descent) / 2f, num);
-                // состояние: зелёная точка — работает (крупная, если сейчас играет), красная — не отвечает
-                if (st != UNKNOWN || i == playing) {
-                    dot.setColor(i == playing || st == OK ? 0xFF30D158 : 0xFFFF453A);
-                    dot.setAlpha(Math.round(al * 255));
-                    float r = (i == playing ? 4.5f : 3.5f) * d * (s / (62 * d));
-                    float a = (float) Math.toRadians(45);
-                    float rr = s / 2f - r * 0.6f;
-                    c.drawCircle(cx + (float) Math.cos(a) * rr, y - (float) Math.sin(a) * rr, r, dot);
-                }
             }
         }
     }

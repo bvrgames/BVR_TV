@@ -1,6 +1,8 @@
 package com.bvrgames.rustv;
 
+import android.Manifest;
 import android.app.Activity;
+import android.app.PictureInPictureParams;
 import android.app.UiModeManager;
 import android.content.Intent;
 import android.content.pm.PackageManager;
@@ -16,10 +18,12 @@ import android.graphics.drawable.GradientDrawable;
 import android.graphics.drawable.LayerDrawable;
 import android.graphics.drawable.StateListDrawable;
 import android.net.Uri;
+import android.os.Build;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
 import android.text.TextUtils;
+import android.util.Rational;
 import android.util.TypedValue;
 import android.view.Gravity;
 import android.view.GestureDetector;
@@ -61,6 +65,9 @@ import org.json.JSONArray;
 import org.json.JSONObject;
 
 import java.io.File;
+import java.lang.ref.WeakReference;
+import java.util.HashSet;
+import java.util.Set;
 import java.io.FileOutputStream;
 import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
@@ -103,6 +110,20 @@ public class MainActivity extends Activity {
     private ExecutorService pool;
     private Updater updater;
     private static final String UPDATE_ROW = new String("update");
+    private static final String BG_ROW = new String("bg");
+
+    // Открытый экран — чтобы уведомление «Стоп» и напоминания могли до него достучаться
+    private static WeakReference<MainActivity> live = new WeakReference<>(null);
+    private boolean resumed;
+
+    private DefaultTrackSelector trackSelector;
+    private boolean keptInBackground;   // ушли из приложения, а звук продолжает играть (телефон)
+    private boolean stoppedByUser;      // нажали «Стоп» в уведомлении
+    private boolean inPip;
+    private long pipExitAt;
+    private Set<String> favorites = new HashSet<>();
+    private FrameLayout root, sheet;
+    private String reminderChannel;     // плашка «Скоро начнётся» — OK/нажатие переключит на этот канал
     private String updateNote = "Сейчас версия " + BuildConfig.VERSION_NAME;
 
     private List<Channels.Channel> channels = new ArrayList<>();
@@ -167,6 +188,8 @@ public class MainActivity extends Activity {
             updateNote = note;
             adapter.notifyDataSetChanged();
         });
+        favorites = new HashSet<>(prefs.getStringSet("favorites", new HashSet<>()));
+        live = new WeakReference<>(this);
         buildUi();
         loadLocalData();
         refreshFromSite();
@@ -174,14 +197,34 @@ public class MainActivity extends Activity {
         int last = indexOf(prefs.getString("last", null));
         probe(last >= 0 ? last : 0);
         if (saved == null) startSplash(); else hideSplash();
+        openFromIntent(getIntent());
+    }
+
+    /** Открыли из уведомления-напоминания — включаем этот канал (сразу или после заставки). */
+    private void openFromIntent(Intent i) {
+        String ch = i == null ? null : i.getStringExtra(Reminders.EXTRA_CHANNEL);
+        if (ch == null) return;
+        i.removeExtra(Reminders.EXTRA_CHANNEL);
+        int ci = indexOf(ch);
+        if (ci < 0) return;
+        prefs.edit().putString("last", ch).apply();
+        if (splashDone && player != null) startChannel(ci);
     }
 
     @Override
     protected void onStart() {
         super.onStart();
         hideSystemBars();
-        if (player == null) createPlayer();
-        if (splashDone) startLastOrCurrent();
+        boolean fresh = player == null;
+        if (fresh) createPlayer();
+        if (keptInBackground && !fresh) {
+            // вернулись, а звук всё это время играл — просто возвращаем картинку
+            keptInBackground = false;
+            setVideoEnabled(true);
+            if (stoppedByUser) { stoppedByUser = false; startLastOrCurrent(); }
+        } else if (splashDone) startLastOrCurrent();
+        ui.removeCallbacks(epgTimer);
+        ui.removeCallbacks(updateTimer);
         ui.post(epgTimer);
         ui.postDelayed(updateTimer, 20000); // обновление проверяем, когда канал уже включился
     }
@@ -189,6 +232,8 @@ public class MainActivity extends Activity {
     @Override
     protected void onResume() {
         super.onResume();
+        resumed = true;
+        live = new WeakReference<>(this);
         updater.onResume();
     }
 
@@ -196,6 +241,7 @@ public class MainActivity extends Activity {
     protected void onNewIntent(Intent intent) {
         super.onNewIntent(intent);
         if (intent != null && Updater.ACTION_INSTALL.equals(intent.getAction())) updater.onInstallResult(intent);
+        else openFromIntent(intent);
     }
 
     // Новые версии ищем при запуске и потом раз в 6 часов
@@ -207,8 +253,27 @@ public class MainActivity extends Activity {
     };
 
     @Override
+    protected void onPause() {
+        super.onPause();
+        resumed = false;
+    }
+
+    @Override
     protected void onStop() {
         super.onStop();
+        // Закрыли маленькое окно (картинку в картинке) — значит, смотреть больше не хотят: останавливаем
+        boolean closedPip = inPip || System.currentTimeMillis() - pipExitAt < 1500;
+        inPip = false;
+        // Телефон, включён «Звук в фоне» и канал играет — не останавливаем, только выключаем картинку
+        if (!closedPip && !isTv && bgAudio() && player != null && played && player.getPlayWhenReady() && !isFinishing()) {
+            keptInBackground = true;
+            setVideoEnabled(false);
+            hidePanel();
+            hideSheet();
+            return;
+        }
+        keptInBackground = false;
+        PlaybackService.hide(this);
         // Ушли с приложения (кнопка «Домой») — освобождаем видеодекодер: слабому телевизору он нужен другим.
         attempt++;
         ui.removeCallbacksAndMessages(null);
@@ -221,8 +286,28 @@ public class MainActivity extends Activity {
     @Override
     protected void onDestroy() {
         super.onDestroy();
+        PlaybackService.hide(this);
+        if (player != null) { player.release(); player = null; }
         pool.shutdownNow();
         probePool.shutdownNow();
+    }
+
+    // Картинка в картинке: вышел на главный экран телефона — канал продолжает идти в маленьком окне
+    @Override
+    protected void onUserLeaveHint() {
+        super.onUserLeaveHint();
+        if (isTv || Build.VERSION.SDK_INT < 26 || player == null || !played || !player.getPlayWhenReady()) return;
+        if (!getPackageManager().hasSystemFeature(PackageManager.FEATURE_PICTURE_IN_PICTURE)) return;
+        try {
+            enterPictureInPictureMode(new PictureInPictureParams.Builder().setAspectRatio(new Rational(16, 9)).build());
+        } catch (Exception ignored) {}
+    }
+
+    @Override
+    public void onPictureInPictureModeChanged(boolean pip, Configuration cfg) {
+        super.onPictureInPictureModeChanged(pip, cfg);
+        inPip = pip;
+        if (pip) { hidePanel(); hideSheet(); hideInfo(); } else pipExitAt = System.currentTimeMillis();
     }
 
     @Override
@@ -266,6 +351,7 @@ public class MainActivity extends Activity {
         AdaptiveTrackSelection.Factory abr = new AdaptiveTrackSelection.Factory(
                 10000, 25000, 25000, 0.6f);
         DefaultTrackSelector ts = new DefaultTrackSelector(this, abr);
+        trackSelector = ts;
         // Слабому телевизору и Wi-Fi 2.4 ГГц хватает 720p: картинка та же, а нагрузки и рывков меньше
         ts.setParameters(ts.buildUponParameters().setMaxVideoSize(1280, 720).setExceedVideoConstraintsIfNecessary(true)
                 .setExceedRendererCapabilitiesIfNecessary(true));
@@ -282,6 +368,7 @@ public class MainActivity extends Activity {
                 .setTrackSelector(ts).setLoadControl(lc).setBandwidthMeter(meter).build();
         player.setAudioAttributes(new AudioAttributes.Builder().setUsage(C.USAGE_MEDIA)
                 .setContentType(C.AUDIO_CONTENT_TYPE_MOVIE).build(), true);
+        if (!isTv) player.setWakeMode(C.WAKE_MODE_NETWORK); // звук не обрывается при выключенном экране
         player.addListener(new Player.Listener() {
             @Override public void onIsPlayingChanged(boolean isPlaying) {
                 if (isPlaying) onPlaying();
@@ -303,6 +390,24 @@ public class MainActivity extends Activity {
             @Override public void onRenderedFirstFrame() { firstFrame = true; }
         });
         playerView.setPlayer(player);
+    }
+
+    /** В фоне картинка не нужна: не качаем и не декодируем видео — меньше трафика и батареи. */
+    private void setVideoEnabled(boolean on) {
+        if (trackSelector == null) return;
+        trackSelector.setParameters(trackSelector.buildUponParameters().setTrackTypeDisabled(C.TRACK_TYPE_VIDEO, !on));
+    }
+
+    private boolean bgAudio() { return prefs.getBoolean("bg_audio", true); }
+
+    /** Кнопка «Стоп» в уведомлении. */
+    static void stopFromNotification() {
+        MainActivity a = live.get();
+        if (a == null || a.player == null) return;
+        a.stoppedByUser = true;
+        a.attempt++;
+        a.ui.removeCallbacksAndMessages(null);
+        a.player.stop();
     }
 
     private HlsMediaSource source(String url) {
@@ -440,6 +545,7 @@ public class MainActivity extends Activity {
         score(ch.sources.get(currentSrc), true);
         prefs.edit().putInt("src:" + ch.name, currentSrc).putString("last", ch.name).apply();
         setStatus("Идёт · источник " + (currentSrc + 1) + " из " + ch.sources.size(), OK, true);
+        if (!isTv && bgAudio()) PlaybackService.show(this, ch.name);
         updateDots();
         showInfo(5000);
     }
@@ -516,6 +622,12 @@ public class MainActivity extends Activity {
             if (e.getAction() == KeyEvent.ACTION_UP) hideSplash();
             return true;
         }
+        if (sheet != null) return super.dispatchKeyEvent(e); // окошко канала — обычная навигация по кнопкам
+        if (reminderChannel != null && e.getAction() == KeyEvent.ACTION_DOWN && panel.getVisibility() != View.VISIBLE
+                && (e.getKeyCode() == KeyEvent.KEYCODE_DPAD_CENTER || e.getKeyCode() == KeyEvent.KEYCODE_ENTER)) {
+            switchToReminder();
+            return true;
+        }
         if (panel.getVisibility() == View.VISIBLE) {
             int code = e.getKeyCode();
             boolean down = e.getAction() == KeyEvent.ACTION_DOWN;
@@ -571,6 +683,7 @@ public class MainActivity extends Activity {
             if (e.getActionMasked() == MotionEvent.ACTION_UP) hideSplash();
             return true;
         }
+        if (sheet != null) return super.dispatchTouchEvent(e);
         if (panel.getVisibility() == View.VISIBLE) {
             if (e.getActionMasked() == MotionEvent.ACTION_DOWN)
                 touchOutside = !inside(panel, e) && !inside(wheelBox, e);
@@ -597,7 +710,10 @@ public class MainActivity extends Activity {
         final float min = dp(56), minV = dp(300);
         gestures = new GestureDetector(this, new GestureDetector.SimpleOnGestureListener() {
             @Override public boolean onDown(MotionEvent e) { return true; }
-            @Override public boolean onSingleTapUp(MotionEvent e) { showPanel(); return true; }
+            @Override public boolean onSingleTapUp(MotionEvent e) {
+                if (reminderChannel != null) switchToReminder(); else showPanel();
+                return true;
+            }
             @Override public boolean onFling(MotionEvent a, MotionEvent b, float vx, float vy) {
                 if (a == null || b == null) return false;
                 float dx = b.getX() - a.getX(), dy = b.getY() - a.getY();
@@ -616,6 +732,7 @@ public class MainActivity extends Activity {
     @Override
     public void onBackPressed() {
         if (!splashDone) { hideSplash(); return; }
+        if (sheet != null) { hideSheet(); return; }
         if (panel.getVisibility() == View.VISIBLE) { hidePanel(); return; }
         long now = System.currentTimeMillis();
         if (now - backPressedAt < 2500) { finish(); return; }
@@ -627,6 +744,7 @@ public class MainActivity extends Activity {
     /** Листание каналов стрелками влево/вправо. Включаем, когда перестали жать. */
     private void zap(int dir) {
         if (channels.isEmpty()) return;
+        reminderChannel = null;
         int from = pendingZap >= 0 ? pendingZap : Math.max(current, 0);
         pendingZap = (from + dir + channels.size()) % channels.size();
         ui.removeCallbacks(pickRun);
@@ -711,7 +829,7 @@ public class MainActivity extends Activity {
     }
 
     private void buildUi() {
-        FrameLayout root = new FrameLayout(this);
+        root = new FrameLayout(this);
         root.setBackgroundColor(Color.BLACK);
 
         playerView = new PlayerView(this);
@@ -807,6 +925,22 @@ public class MainActivity extends Activity {
             Object item = adapter.getItem(position);
             if (item instanceof Integer) { startChannel((Integer) item); hidePanel(); }
             else if (item == UPDATE_ROW) { panelTimer(); updater.checkNow(); }
+            else if (item == BG_ROW) {
+                panelTimer();
+                boolean on = !bgAudio();
+                prefs.edit().putBoolean("bg_audio", on).apply();
+                if (on) { askNotifications(); if (played && current >= 0) PlaybackService.show(this, channels.get(current).name); }
+                else PlaybackService.hide(this);
+                adapter.notifyDataSetChanged();
+            }
+        });
+        // Долгое нажатие на канал (пальцем или OK на пульте) — избранное и напоминания о передачах
+        list.setLongClickable(true);
+        list.setOnItemLongClickListener((p, v, position, id) -> {
+            Object item = adapter.getItem(position);
+            if (!(item instanceof Integer)) return false;
+            openSheet((Integer) item);
+            return true;
         });
         list.setOnScrollListener(new AbsListView.OnScrollListener() {
             @Override public void onScrollStateChanged(AbsListView v, int s) { panelTimer(); }
@@ -817,7 +951,8 @@ public class MainActivity extends Activity {
         panel.addView(list, new LinearLayout.LayoutParams(-1, 0, 1f));
         panel.addView(botCard());
         TextView hint = text(12, MUTED, false);
-        hint.setText((isTv ? "▲▼◄► каналы  ·  OK меню  ·  ► источники" : "Свайп — каналы  ·  нажатие — меню")
+        hint.setText((isTv ? "▲▼◄► каналы  ·  OK меню  ·  ► источники  ·  удерживай OK — ★ и 🔔"
+                : "Свайп — каналы  ·  нажатие — меню  ·  удерживай канал — ★ и 🔔")
                 + "  ·  версия " + BuildConfig.VERSION_NAME);
         hint.setPadding(dp(8), dp(8), 0, 0);
         panel.addView(hint);
@@ -1020,6 +1155,12 @@ public class MainActivity extends Activity {
 
         void rebuild() {
             rows.clear();
+            boolean anyFav = false;
+            for (int i = 0; i < channels.size(); i++) {
+                if (!favorites.contains(channels.get(i).name)) continue;
+                if (!anyFav) { rows.add("★ Избранное"); anyFav = true; }
+                rows.add(i);
+            }
             String sec = null;
             List<String> secs = new ArrayList<>();
             for (Channels.Channel c : channels) if (!secs.contains(c.sec)) secs.add(c.sec);
@@ -1031,6 +1172,7 @@ public class MainActivity extends Activity {
                 }
             }
             rows.add(UPDATE_ROW);
+            if (!isTv) rows.add(BG_ROW);
             notifyDataSetChanged();
         }
 
@@ -1040,14 +1182,14 @@ public class MainActivity extends Activity {
         @Override public Object getItem(int p) { return rows.get(p); }
         @Override public long getItemId(int p) { return p; }
         @Override public int getViewTypeCount() { return 3; }
-        @Override public int getItemViewType(int p) { Object r = rows.get(p); return r == UPDATE_ROW ? 2 : r instanceof String ? 0 : 1; }
+        @Override public int getItemViewType(int p) { Object r = rows.get(p); return r == UPDATE_ROW || r == BG_ROW ? 2 : r instanceof String ? 0 : 1; }
         @Override public boolean areAllItemsEnabled() { return false; }
-        @Override public boolean isEnabled(int p) { return rows.get(p) instanceof Integer || rows.get(p) == UPDATE_ROW; }
+        @Override public boolean isEnabled(int p) { Object r = rows.get(p); return r instanceof Integer || r == UPDATE_ROW || r == BG_ROW; }
 
         @Override
         public View getView(int p, View convert, ViewGroup parent) {
             Object row = rows.get(p);
-            if (row == UPDATE_ROW) {
+            if (row == UPDATE_ROW || row == BG_ROW) {
                 LinearLayout r = convert instanceof LinearLayout ? (LinearLayout) convert : null;
                 if (r == null) {
                     r = new LinearLayout(MainActivity.this);
@@ -1066,11 +1208,19 @@ public class MainActivity extends Activity {
                     r.addView(texts, np);
                 }
                 LinearLayout texts = (LinearLayout) r.getChildAt(1);
-                ((TextView) texts.getChildAt(0)).setText("Проверить обновления");
-                ((TextView) texts.getChildAt(1)).setText(updateNote);
+                if (row == UPDATE_ROW) {
+                    ((TextView) r.getChildAt(0)).setText("⟳");
+                    ((TextView) texts.getChildAt(0)).setText("Проверить обновления");
+                    ((TextView) texts.getChildAt(1)).setText(updateNote);
+                } else {
+                    boolean on = bgAudio();
+                    ((TextView) r.getChildAt(0)).setText(on ? "🔊" : "🔈");
+                    ((TextView) texts.getChildAt(0)).setText("Звук в фоне: " + (on ? "включён" : "выключен"));
+                    ((TextView) texts.getChildAt(1)).setText(on ? "Экран выключен — канал всё равно слышно" : "Нажми, чтобы включить");
+                }
                 return r;
             }
-            if (row instanceof String && row != UPDATE_ROW) {
+            if (row instanceof String) {
                 TextView t = convert instanceof TextView ? (TextView) convert : text(13, MUTED, false);
                 t.setText(((String) row).toUpperCase());
                 t.setPadding(dp(8), dp(p == 0 ? 4 : 18), 0, dp(6));
@@ -1104,16 +1254,146 @@ public class MainActivity extends Activity {
             LinearLayout texts = (LinearLayout) r.getChildAt(1);
             TextView name = (TextView) texts.getChildAt(0);
             TextView prog = (TextView) texts.getChildAt(1);
-            name.setText(ch.name);
+            name.setText(favorites.contains(ch.name) ? "★ " + ch.name : ch.name);
             boolean isCur = ci == current;
             name.setTextColor(isCur ? ACCENT : Color.WHITE);
             name.setTypeface(isCur ? Typeface.DEFAULT_BOLD : Typeface.DEFAULT);
             int i = progIndex(ch.name, now());
-            if (i >= 0) { prog.setText(epgTitles.get(ch.name)[i]); prog.setVisibility(View.VISIBLE); }
+            if (i >= 0) { prog.setText(epgTitles.get(ch.name)[i] + (hasReminder(ch.name) ? "  🔔" : "")); prog.setVisibility(View.VISIBLE); }
             else prog.setVisibility(View.GONE);
             r.getChildAt(2).setVisibility(isCur && played ? View.VISIBLE : View.INVISIBLE);
             return r;
         }
+    }
+
+    // ---------- избранное и напоминания ----------
+
+    private boolean hasReminder(String channel) {
+        for (String k : Reminders.all(this)) if (k.startsWith(channel + "|")) return true;
+        return false;
+    }
+
+    private void toggleFavorite(String name) {
+        if (!favorites.remove(name)) favorites.add(name);
+        prefs.edit().putStringSet("favorites", new HashSet<>(favorites)).apply();
+        adapter.rebuild();
+    }
+
+    /** На Android 13+ уведомления нужно разрешить — спрашиваем, когда они впервые понадобились. */
+    private void askNotifications() {
+        if (Build.VERSION.SDK_INT >= 33 && checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED)
+            requestPermissions(new String[]{Manifest.permission.POST_NOTIFICATIONS}, 5);
+    }
+
+    private TextView sheetButton(String label) {
+        TextView b = text(17, Color.WHITE, false);
+        b.setText(label);
+        b.setPadding(dp(16), dp(12), dp(16), dp(12));
+        b.setFocusable(true);
+        b.setClickable(true);
+        StateListDrawable bg = new StateListDrawable();
+        bg.addState(new int[]{android.R.attr.state_focused}, new Glass(dp(14), density()).strength(1.6f).glow(ACCENT));
+        bg.addState(new int[]{android.R.attr.state_pressed}, new Glass(dp(14), density()).strength(1.6f));
+        bg.addState(new int[]{}, new ColorDrawable(Color.TRANSPARENT));
+        b.setBackground(bg);
+        return b;
+    }
+
+    /** Окошко канала: в избранное и колокольчики на ближайшие передачи. */
+    private void openSheet(int ci) {
+        hideSheet();
+        final Channels.Channel ch = channels.get(ci);
+        panelTimer();
+        ui.removeCallbacks(hidePanelRun); // пока открыто окошко, меню не прячем
+        LinearLayout box = new LinearLayout(this);
+        box.setOrientation(LinearLayout.VERTICAL);
+        box.setPadding(dp(18), dp(16), dp(18), dp(16));
+        box.setBackground(new Glass(dp(26), density()));
+        TextView title = text(22, Color.WHITE, true);
+        title.setText(ch.name);
+        title.setPadding(dp(16), 0, 0, dp(8));
+        box.addView(title);
+        final TextView fav = sheetButton(favorites.contains(ch.name) ? "★  Убрать из избранного" : "☆  Добавить в избранное");
+        fav.setOnClickListener(v -> {
+            toggleFavorite(ch.name);
+            fav.setText(favorites.contains(ch.name) ? "★  Убрать из избранного" : "☆  Добавить в избранное");
+        });
+        box.addView(fav);
+        long[][] t = epgTimes.get(ch.name);
+        String[] titles = epgTitles.get(ch.name);
+        long now = now();
+        int shown = 0;
+        if (t != null) {
+            TextView h = text(13, MUTED, false);
+            h.setText("НАПОМНИТЬ ЗА 5 МИНУТ");
+            h.setPadding(dp(16), dp(14), 0, dp(4));
+            box.addView(h);
+            for (int i = 0; i < t.length && shown < 7; i++) {
+                if (t[i][0] <= now + Reminders.BEFORE_SEC) continue; // уже идёт или вот-вот начнётся
+                final long start = t[i][0];
+                final String pt = titles[i];
+                final TextView row = sheetButton("");
+                final Runnable upd = () -> row.setText((Reminders.has(this, ch.name, start) ? "🔔  " : "      ")
+                        + hhmm.format(new Date(start * 1000)) + "   " + pt);
+                upd.run();
+                row.setOnClickListener(v -> {
+                    boolean on = Reminders.toggle(this, ch.name, start, pt);
+                    if (on) askNotifications();
+                    upd.run();
+                    adapter.notifyDataSetChanged();
+                });
+                box.addView(row);
+                shown++;
+            }
+        }
+        if (shown == 0) {
+            TextView none = text(14, MUTED, false);
+            none.setText("Программы передач для этого канала пока нет");
+            none.setPadding(dp(16), dp(12), 0, dp(4));
+            box.addView(none);
+        }
+        sheet = new FrameLayout(this);
+        sheet.setBackgroundColor(0x80000000);
+        sheet.setOnClickListener(v -> hideSheet());
+        box.setClickable(true);
+        FrameLayout.LayoutParams bl = new FrameLayout.LayoutParams(dp(520), -2, Gravity.CENTER);
+        sheet.addView(box, bl);
+        root.addView(sheet, new FrameLayout.LayoutParams(-1, -1));
+        fav.requestFocus();
+    }
+
+    private void hideSheet() {
+        if (sheet == null) return;
+        root.removeView(sheet);
+        sheet = null;
+        if (panel.getVisibility() == View.VISIBLE) { list.requestFocus(); panelTimer(); }
+    }
+
+    /** Напоминание сработало, а приложение открыто — показываем плашку (OK или нажатие — переключиться). */
+    static boolean showReminder(String channel, String title) {
+        MainActivity a = live.get();
+        if (a == null || !a.resumed || a.isFinishing()) return false;
+        a.ui.post(() -> {
+            int ci = a.indexOf(channel);
+            if (ci < 0) return;
+            a.reminderChannel = channel;
+            a.fillInfo(ci);
+            a.setStatus("🔔 Через 5 минут: " + title + (a.isTv ? " · OK — смотреть" : " · нажми — смотреть"), Color.WHITE, false);
+            a.infoBar.setVisibility(View.VISIBLE);
+            a.ui.removeCallbacks(a.hideInfoRun);
+            a.ui.removeCallbacks(a.clearReminder);
+            a.ui.postDelayed(a.clearReminder, 20000);
+        });
+        return true;
+    }
+
+    private final Runnable clearReminder = () -> { reminderChannel = null; hideInfo(); };
+
+    private void switchToReminder() {
+        int ci = indexOf(reminderChannel);
+        ui.removeCallbacks(clearReminder);
+        reminderChannel = null;
+        if (ci >= 0) startChannel(ci);
     }
 
     private int indexOf(String name) {

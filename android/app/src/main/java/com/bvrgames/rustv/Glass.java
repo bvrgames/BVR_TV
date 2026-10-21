@@ -21,6 +21,7 @@ final class Glass extends Drawable {
     private final float density;
     private int glow;                // цвет подсветки кромки (0 — обычное стекло)
     private float strength = 1f;     // 1 — обычное, больше — ярче (выбранный элемент)
+    private int tint;                // цвет стекла (0 — тёмное); зелёный/красный/серый для кружков источников
 
     private final Paint base = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final Paint light = new Paint(Paint.ANTI_ALIAS_FLAG);
@@ -42,6 +43,7 @@ final class Glass extends Drawable {
     static Glass circle(float density) { return new Glass(-1, density); }
 
     Glass glow(int color) { if (glow != color) { glow = color; rebuild(); invalidateSelf(); } return this; }
+    Glass tint(int color) { if (tint != color) { tint = color; rebuild(); invalidateSelf(); } return this; }
     Glass strength(float s) { if (strength != s) { strength = s; rebuild(); invalidateSelf(); } return this; }
 
     @Override protected void onBoundsChange(Rect b) { rebuild(); }
@@ -51,6 +53,14 @@ final class Glass extends Drawable {
         return (al << 24) | (color & 0x00FFFFFF);
     }
 
+    /** Смесь двух цветов: k — доля второго, alpha — прозрачность результата. */
+    private static int mix(int c1, int c2, float k, float alpha) {
+        int r = Math.round(((c1 >> 16) & 255) * (1 - k) + ((c2 >> 16) & 255) * k);
+        int g = Math.round(((c1 >> 8) & 255) * (1 - k) + ((c2 >> 8) & 255) * k);
+        int b = Math.round((c1 & 255) * (1 - k) + (c2 & 255) * k);
+        return (Math.round(alpha * 255) << 24) | (r << 16) | (g << 8) | b;
+    }
+
     private void rebuild() {
         Rect b = getBounds();
         if (b.isEmpty()) return;
@@ -58,11 +68,12 @@ final class Glass extends Drawable {
         r.set(b.left + sw, b.top + sw, b.right - sw, b.bottom - sw);
         float h = r.height(), w = r.width();
         float s = strength;
-        base.setShader(new LinearGradient(0, r.top, 0, r.bottom,
-                new int[]{0xB3141826, 0xC70B0E18}, null, Shader.TileMode.CLAMP));
+        int top = tint == 0 ? 0xB3141826 : mix(tint, 0xFF0B0E18, 0.25f, 0.78f);
+        int bottom = tint == 0 ? 0xC70B0E18 : mix(tint, 0xFF0B0E18, 0.55f, 0.85f);
+        base.setShader(new LinearGradient(0, r.top, 0, r.bottom, new int[]{top, bottom}, null, Shader.TileMode.CLAMP));
         light.setShader(new RadialGradient(r.left + w * 0.3f, r.top, Math.max(w, h) * 0.9f,
                 new int[]{a(0xFFFFFF, 0.13f * s), a(0xFFFFFF, 0.03f * s), 0}, new float[]{0f, 0.55f, 1f}, Shader.TileMode.CLAMP));
-        int g = glow != 0 ? glow : 0xFFB9C8FF;
+        int g = glow != 0 ? glow : tint != 0 ? mix(tint, 0xFFFFFFFF, 0.45f, 1f) : 0xFFB9C8FF;
         edge.setStrokeWidth(sw);
         edge.setShader(new LinearGradient(r.left, r.top, r.right, r.bottom,
                 new int[]{a(0xFFFFFF, Math.min(1f, 0.55f * s)), a(g, 0.18f * s), a(0xFFFFFF, 0.08f), a(g, Math.min(1f, 0.45f * s))},
