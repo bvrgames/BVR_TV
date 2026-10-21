@@ -93,7 +93,7 @@ import okhttp3.ResponseBody;
 @OptIn(markerClass = UnstableApi.class)
 public class MainActivity extends Activity {
 
-    private static final String SITE = "https://bvrgames.github.io/BVR_TV/";
+    private static final String SITE = "https://rus-tv.vercel.app/";
     private static final String RAW = "https://raw.githubusercontent.com/bvrgames/BVR_TV/main/";
     private static final String EPG = "https://raw.githubusercontent.com/bvrgames/BVR_TV/epg/epg.json";
     private static final String PROXY = "https://rustv.bvrhockey.workers.dev/?u=";

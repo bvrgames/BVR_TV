@@ -8,7 +8,7 @@
 //  2) Все ссылки внутри плейлиста (куски видео, качества, ключи) прокси подписывает сам — чужую ссылку
 //     с поддельной подписью он не пропустит.
 const HOSTS_TTL = 10 * 60 * 1000;
-const INDEX_SOURCES = ["https://bvrgames.github.io/BVR_TV/index.html", "https://raw.githubusercontent.com/bvrgames/BVR_TV/main/index.html"];
+const INDEX_SOURCES = ["https://rus-tv.vercel.app/index.html", "https://bvrgames.github.io/BVR_TV/index.html", "https://raw.githubusercontent.com/bvrgames/BVR_TV/main/index.html"];
 const ALLOWED_PREFIXES = ["https://raw.githubusercontent.com/bvrgames/BVR_TV/"]; // телепрограмма для ТВ-приложения
 let hostsCache = null, hostsAt = 0;
 
@@ -79,7 +79,7 @@ async function rewritePlaylist(env, text, baseUrl, origin, ref) {
 
 // ---------- Бот @rus_tv_bot: приветствие, версия для ТВ, донаты звёздами ----------
 // Токен бота хранится секретом TELEGRAM_BOT_TOKEN в Cloudflare (кладётся туда автоматически из GitHub).
-const APP_URL = "https://bvrgames.github.io/BVR_TV/";
+const APP_URL = "https://rus-tv.vercel.app/";
 const APK_URL = "https://github.com/bvrgames/BVR_TV/releases/download/tv/rus-tv.apk";
 const DRIVE_URL = "https://drive.google.com/drive/folders/1S_JAApDn_H-KI_ha14Hs77xLHIuUeGgW?usp=sharing";
 const TV_KB = { inline_keyboard: [[{ text: "📁 APK на Google Диске", url: DRIVE_URL }]] };
