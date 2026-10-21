@@ -111,6 +111,8 @@ public class MainActivity extends Activity {
     private final SimpleDateFormat hhmm = new SimpleDateFormat("HH:mm", Locale.getDefault());
 
     private ExoPlayer player;
+    private DefaultBandwidthMeter meter;
+    private ExecutorService probePool;
     private PlayerView playerView;
     private FrameLayout splashBox;
     private VideoView splash;
@@ -123,7 +125,7 @@ public class MainActivity extends Activity {
     private ProgressBar infoProgress;
 
     private boolean splashDone;
-    private int current = -1, currentSrc = 0, pendingZap = -1;
+    private int current = -1, currentSrc = 0, pendingZap = -1, pendingSrc = -1;
     private int attempt = 0;
     private boolean played, firstFrame, retried;
 
@@ -145,7 +147,8 @@ public class MainActivity extends Activity {
                 .connectionPool(new ConnectionPool(8, 2, TimeUnit.MINUTES))
                 .retryOnConnectionFailure(true).followRedirects(true).followSslRedirects(true)
                 .build();
-        pool = Executors.newFixedThreadPool(6);
+        pool = Executors.newFixedThreadPool(4);
+        probePool = Executors.newFixedThreadPool(3); // не забиваем Wi-Fi проверками, пока стартует видео
         updater = new Updater(this, http, pool, () -> { if (player != null) player.stop(); }, note -> {
             updateNote = note;
             adapter.notifyDataSetChanged();
@@ -195,6 +198,7 @@ public class MainActivity extends Activity {
         // Ушли с приложения (кнопка «Домой») — освобождаем видеодекодер: слабому телевизору он нужен другим.
         attempt++;
         ui.removeCallbacksAndMessages(null);
+        if (meter != null && meter.getBitrateEstimate() > 0) prefs.edit().putLong("bw", meter.getBitrateEstimate()).apply();
         if (player != null) { player.release(); player = null; }
         if (splash != null && splash.isPlaying()) splash.stopPlayback();
         if (!splashDone) hideSplash();
@@ -204,6 +208,7 @@ public class MainActivity extends Activity {
     protected void onDestroy() {
         super.onDestroy();
         pool.shutdownNow();
+        probePool.shutdownNow();
     }
 
     @Override
@@ -251,7 +256,10 @@ public class MainActivity extends Activity {
         ts.setParameters(ts.buildUponParameters().setMaxVideoSize(1280, 720).setExceedVideoConstraintsIfNecessary(true)
                 .setExceedRendererCapabilitiesIfNecessary(true));
         // Начинаем с умеренного качества — картинка появляется быстрее, дальше плеер сам поднимет качество
-        DefaultBandwidthMeter meter = new DefaultBandwidthMeter.Builder(this).setInitialBitrateEstimate(800_000).build();
+        // Стартовое качество — по скорости, которая была у тебя в прошлый раз (а не наугад)
+        long known = prefs.getLong("bw", 800_000L);
+        meter = new DefaultBandwidthMeter.Builder(this)
+                .setInitialBitrateEstimate(Math.max(500_000L, Math.min(known * 7 / 10, 4_000_000L))).build();
         DefaultLoadControl lc = new DefaultLoadControl.Builder()
                 // старт через 2 с запаса; после рывка ждём 5 с, чтобы не было «рывок-рывок-рывок»
                 .setBufferDurationsMs(30000, 60000, 2000, 5000)
@@ -305,6 +313,8 @@ public class MainActivity extends Activity {
 
     private void startChannel(int ci) {
         Channels.Channel ch = channels.get(ci);
+        ui.removeCallbacks(pickRun);
+        pendingSrc = -1;
         int saved = prefs.getInt("src:" + ch.name, 0);
         if (saved >= ch.sources.size()) saved = 0;
         current = ci;
@@ -352,7 +362,7 @@ public class MainActivity extends Activity {
         if (ci < 0 || ci >= channels.size()) return;
         final Channels.Channel ch = channels.get(ci);
         for (final String url : ch.sources) {
-            pool.execute(() -> {
+            probePool.execute(() -> {
                 long t0 = System.currentTimeMillis();
                 long ms = -1;
                 OkHttpClient c = http.newBuilder()
@@ -502,20 +512,21 @@ public class MainActivity extends Activity {
             return super.onKeyDown(code, e);
         }
         switch (code) {
-            case KeyEvent.KEYCODE_DPAD_UP:
-            case KeyEvent.KEYCODE_CHANNEL_UP:
-                zap(-1); return true;
-            case KeyEvent.KEYCODE_DPAD_DOWN:
+            case KeyEvent.KEYCODE_DPAD_LEFT:
             case KeyEvent.KEYCODE_CHANNEL_DOWN:
+                zap(-1); return true;
+            case KeyEvent.KEYCODE_DPAD_RIGHT:
+            case KeyEvent.KEYCODE_CHANNEL_UP:
                 zap(1); return true;
+            case KeyEvent.KEYCODE_DPAD_UP:
+                pickSource(-1); return true;
+            case KeyEvent.KEYCODE_DPAD_DOWN:
+                pickSource(1); return true;
             case KeyEvent.KEYCODE_DPAD_CENTER:
             case KeyEvent.KEYCODE_ENTER:
             case KeyEvent.KEYCODE_NUMPAD_ENTER:
-            case KeyEvent.KEYCODE_DPAD_LEFT:
             case KeyEvent.KEYCODE_MENU:
                 showPanel(); return true;
-            case KeyEvent.KEYCODE_DPAD_RIGHT:
-                manualNext(); return true;
             case KeyEvent.KEYCODE_INFO:
                 showInfo(5000); return true;
         }
@@ -533,11 +544,13 @@ public class MainActivity extends Activity {
         showInfo(2500);
     }
 
-    /** Листание каналов стрелками вверх/вниз, как на обычном телевизоре. Включаем, когда перестали жать. */
+    /** Листание каналов стрелками влево/вправо. Включаем, когда перестали жать. */
     private void zap(int dir) {
         if (channels.isEmpty()) return;
         int from = pendingZap >= 0 ? pendingZap : Math.max(current, 0);
         pendingZap = (from + dir + channels.size()) % channels.size();
+        ui.removeCallbacks(pickRun);
+        pendingSrc = -1;
         fillInfo(pendingZap);
         setStatus("", MUTED, false);
         showInfo(0);
@@ -551,13 +564,32 @@ public class MainActivity extends Activity {
         if (ci >= 0) startChannel(ci);
     };
 
-    private void manualNext() {
-        if (current < 0) return;
+    /** ▲▼ — выбор источника по кружкам справа. Включаем выбранный, когда перестали жать. */
+    private void pickSource(int dir) {
+        if (current < 0 || pendingZap >= 0) return;
         Channels.Channel ch = channels.get(current);
         if (ch.sources.size() < 2) { setStatus("У этого канала один источник", MUTED, played); showInfo(2500); return; }
-        attempt++;
-        nextSource(0);
+        int from = pendingSrc >= 0 ? pendingSrc : currentSrc;
+        pendingSrc = (from + dir + ch.sources.size()) % ch.sources.size();
+        setStatus("Источник " + (pendingSrc + 1) + " из " + ch.sources.size(), Color.WHITE, false);
+        showInfo(0);
+        updateDots();
+        ui.removeCallbacks(pickRun);
+        ui.postDelayed(pickRun, 600);
     }
+
+    private final Runnable pickRun = () -> {
+        int si = pendingSrc;
+        pendingSrc = -1;
+        if (si < 0 || current < 0) return;
+        Channels.Channel ch = channels.get(current);
+        // выбранный — первым, дальше по кругу; если он не пойдёт, приложение само возьмёт следующий
+        order.clear();
+        for (int i = 0; i < ch.sources.size(); i++) order.add((si + i) % ch.sources.size());
+        pos = 0; round = 1;
+        attempt++;
+        playAt(false);
+    };
 
     // ---------- экран ----------
 
@@ -627,16 +659,22 @@ public class MainActivity extends Activity {
         col.addView(infoNext);
         infoStatus = text(15, MUTED, false);
         col.addView(infoStatus);
-        infoDots = new LinearLayout(this);
-        infoDots.setGravity(Gravity.CENTER_VERTICAL);
-        LinearLayout.LayoutParams dlp = new LinearLayout.LayoutParams(-2, -2);
-        dlp.topMargin = dp(6);
-        col.addView(infoDots, dlp);
         infoBar.addView(col, new LinearLayout.LayoutParams(-2, -2));
         FrameLayout.LayoutParams ip = new FrameLayout.LayoutParams(-2, -2, Gravity.BOTTOM | Gravity.START);
         ip.setMargins(dp(40), 0, dp(40), dp(32));
         infoBar.setVisibility(View.GONE);
         root.addView(infoBar, ip);
+
+        // Кружки источников — столбиком у правого края экрана
+        infoDots = new LinearLayout(this);
+        infoDots.setOrientation(LinearLayout.VERTICAL);
+        infoDots.setGravity(Gravity.CENTER_HORIZONTAL);
+        infoDots.setPadding(dp(8), dp(10), dp(8), dp(4));
+        infoDots.setBackground(round(0x59000000, 24));
+        FrameLayout.LayoutParams dp0 = new FrameLayout.LayoutParams(-2, -2, Gravity.END | Gravity.CENTER_VERTICAL);
+        dp0.rightMargin = dp(28);
+        infoDots.setVisibility(View.GONE);
+        root.addView(infoDots, dp0);
 
         // Список каналов слева
         panel = new LinearLayout(this);
@@ -672,7 +710,7 @@ public class MainActivity extends Activity {
         panel.addView(list, new LinearLayout.LayoutParams(-1, 0, 1f));
         panel.addView(botCard());
         TextView hint = text(12, MUTED, false);
-        hint.setText("▲▼ каналы  ·  OK список  ·  ► другой источник  ·  версия " + BuildConfig.VERSION_NAME);
+        hint.setText("◄► каналы  ·  ▲▼ источник  ·  OK список  ·  версия " + BuildConfig.VERSION_NAME);
         hint.setPadding(dp(8), dp(8), 0, 0);
         panel.addView(hint);
         panel.setVisibility(View.GONE);
@@ -759,20 +797,28 @@ public class MainActivity extends Activity {
     private void panelTimer() { ui.removeCallbacks(hidePanelRun); ui.postDelayed(hidePanelRun, 15000); }
 
     private final Runnable hideInfoRun = this::hideInfo;
-    private void hideInfo() { infoBar.setVisibility(View.GONE); }
+    private void hideInfo() {
+        infoBar.setVisibility(View.GONE);
+        if (infoDots != null) infoDots.animate().alpha(0f).setDuration(250).withEndAction(() -> infoDots.setVisibility(View.GONE)).start();
+    }
 
     /** ms = 0 — держать, пока не придёт новое событие. */
     private void showInfo(long ms) {
         if (!splashDone || panel.getVisibility() == View.VISIBLE) return;
         if (pendingZap < 0 && current >= 0) fillInfo(current);
         infoBar.setVisibility(View.VISIBLE);
+        boolean dots = pendingZap < 0 && current >= 0 && channels.get(current).sources.size() > 1;
+        infoDots.animate().cancel();
+        infoDots.setAlpha(1f);
+        infoDots.setVisibility(dots ? View.VISIBLE : View.GONE);
+        if (dots) updateDots();
         ui.removeCallbacks(hideInfoRun);
         if (ms > 0) ui.postDelayed(hideInfoRun, ms);
     }
 
     private void fillInfo(int ci) {
         Channels.Channel ch = channels.get(ci);
-        infoDots.setVisibility(ci == current ? View.VISIBLE : View.GONE);
+        if (ci != current) infoDots.setVisibility(View.GONE);
         infoName.setText(ch.name);
         infoBadge.removeAllViews();
         infoBadge.addView(badge(ch, 15), new FrameLayout.LayoutParams(-1, -1));
@@ -804,25 +850,27 @@ public class MainActivity extends Activity {
         if (infoDots.getChildCount() != ch.sources.size()) {
             infoDots.removeAllViews();
             for (int i = 0; i < ch.sources.size(); i++) {
-                TextView d = text(11, Color.WHITE, true);
+                TextView d = text(13, Color.WHITE, true);
                 d.setGravity(Gravity.CENTER);
                 d.setText(String.valueOf(i + 1));
-                LinearLayout.LayoutParams l = new LinearLayout.LayoutParams(dp(22), dp(22));
-                l.rightMargin = dp(6);
+                LinearLayout.LayoutParams l = new LinearLayout.LayoutParams(dp(30), dp(30));
+                l.bottomMargin = dp(6);
                 infoDots.addView(d, l);
             }
         }
         for (int i = 0; i < ch.sources.size(); i++) {
             TextView d = (TextView) infoDots.getChildAt(i);
             Long ms = probeMs.get(ch.sources.get(i));
-            boolean cur = i == currentSrc;
-            int fill = (cur && played) || (ms != null && ms >= 0) ? OK : (ms != null ? BAD : 0xFF48484A);
+            boolean cur = pendingSrc >= 0 ? i == pendingSrc : i == currentSrc;
+            boolean playing = i == currentSrc && played;
+            int fill = playing || (ms != null && ms >= 0) ? OK : (ms != null ? BAD : 0xFF48484A);
             GradientDrawable g = new GradientDrawable();
             g.setShape(GradientDrawable.OVAL);
-            g.setColor(fill);
-            if (cur) g.setStroke(dp(2), Color.WHITE);
+            g.setColor((fill & 0x00FFFFFF) | (cur ? 0xE6000000 : 0x8C000000)); // полупрозрачные, выбранный ярче
+            if (cur) g.setStroke(dp(2.5f), Color.WHITE);
             d.setBackground(g);
-            d.setAlpha(cur ? 1f : 0.75f);
+            d.setScaleX(cur ? 1.15f : 1f); d.setScaleY(cur ? 1.15f : 1f);
+            d.setAlpha(cur ? 1f : 0.7f);
         }
     }
 

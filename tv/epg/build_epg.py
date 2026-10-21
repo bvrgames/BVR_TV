@@ -92,6 +92,26 @@ def parse(data, wanted_keys, lo, hi):
     return out
 
 
+def find_events(data, words, lo, hi):
+    """Ищет передачи по словам (например, UFC) во ВСЕХ каналах программы — чтобы понять, где будет эфир."""
+    names, found = {}, []
+    for ev, el in ET.iterparse(io.BytesIO(data), events=("end",)):
+        if el.tag == "channel":
+            dn = el.find("display-name")
+            names[el.get("id")] = (dn.text or "").strip() if dn is not None else el.get("id")
+            el.clear()
+        elif el.tag == "programme":
+            t = el.find("title")
+            title = (t.text or "") if t is not None else ""
+            if any(w.lower() in title.lower() for w in words):
+                a = ts(el.get("start", ""))
+                if a and lo <= a <= hi:
+                    found.append((a, names.get(el.get("channel"), el.get("channel")), title.strip()))
+            el.clear()
+    found.sort()
+    return found
+
+
 def main():
     names = our_channels()
     wanted = {}
@@ -108,6 +128,11 @@ def main():
         try:
             t0 = time.time()
             data = fetch(url)
+            if url == SOURCES[0]:
+                ev = find_events(data, ["UFC"], now - 3600, now + 8 * 86400)
+                msk = 3 * 3600
+                lines = [time.strftime("%d.%m %H:%M МСК", time.gmtime(a + msk)) + " | " + c + " | " + t for a, c, t in ev]
+                open("ufc.txt", "w", encoding="utf-8").write("\n".join(lines) + "\n")
             got = parse(data, {k: v for k, v in wanted.items() if v in missing}, lo, hi)
             got = {k: v for k, v in got.items() if len(v) >= 2}
             result.update(got)
