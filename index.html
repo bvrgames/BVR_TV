@@ -148,7 +148,7 @@
     <button class="main" id="tvApk">Получить APK</button>
   </div>
 </details>
-<footer>версия 26</footer>
+<footer>версия 27</footer>
 </div>
 </div>
 
@@ -159,7 +159,7 @@
   upd(); addEventListener('resize', upd); addEventListener('orientationchange', () => setTimeout(upd, 300));
 })();
 // Telegram держит старую версию в кэше. Сверяем номер версии с сайтом и, если вышла новая, перезагружаемся один раз.
-const APP_VERSION = "26";
+const APP_VERSION = "27";
 (() => {
   fetch('version.txt?t=' + Date.now(), { cache: 'no-store' }).then(r => r.ok ? r.text() : '').then(v => {
     v = (v || '').trim();
@@ -272,6 +272,15 @@ const CHANNELS = [
   ]},
   { sec: "Спорт", name: "Матч! Премьер", short: "ПРЕМ", color: "#a50021", sources: [
     viaProxy("http://stream.mcquack.net/193/index.m3u8"),
+  ]},
+  { sec: "Спорт", name: "Беларусь 5", short: "Б5", color: "#00843d", sources: [
+    "https://ngtrk.dc.beltelecom.by/ngtrk/smil:belarus5.smil/playlist.m3u8",
+    "https://edge59.dc.beltelecom.by/ngtrk/smil:belarus5int.smil/playlist.m3u8",
+    "https://ngtrk.dc.beltelecom.by/ngtrk/smil:belarus5int.smil/playlist.m3u8",
+    viaProxy("https://ngtrk.dc.beltelecom.by/ngtrk/smil:belarus5.smil/playlist.m3u8"),
+    viaProxy("http://178.124.179.122:8080/BT5/index.m3u8"),
+    "https://streaming.thestream.cyou/live/7001.m3u8",
+    viaProxy("http://stream.mcquack.net/33/index.m3u8"),
   ]},
   { sec: "Кино и сериалы", name: "Дом Кино", short: "ДК", color: "#7a1f2b", sources: [
     "https://streaming.thestream.cyou/live/44.m3u8",
