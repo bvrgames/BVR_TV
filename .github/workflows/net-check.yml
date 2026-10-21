@@ -1,0 +1,34 @@
+# Проверяет, открываются ли адреса rus tv из России (через зонды Globalping). Отчёт — в ветке net-check.
+name: Проверка из России
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - tools/net_check.py
+      - .github/workflows/net-check.yml
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Проверить
+        run: |
+          mkdir -p "$RUNNER_TEMP/out" && cd "$RUNNER_TEMP/out"
+          python3 "$GITHUB_WORKSPACE/tools/net_check.py"
+      - name: Сохранить отчёт
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          cd "$RUNNER_TEMP/out"
+          git init -q && git checkout -q -b net-check
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add ru-check.txt && git commit -q -m "Проверка из России"
+          git push -q -f "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" HEAD:net-check
