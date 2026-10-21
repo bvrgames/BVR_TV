@@ -148,7 +148,7 @@
     <button class="main" id="tvApk">Получить APK</button>
   </div>
 </details>
-<footer>версия 27</footer>
+<footer>версия 28</footer>
 </div>
 </div>
 
@@ -159,7 +159,7 @@
   upd(); addEventListener('resize', upd); addEventListener('orientationchange', () => setTimeout(upd, 300));
 })();
 // Telegram держит старую версию в кэше. Сверяем номер версии с сайтом и, если вышла новая, перезагружаемся один раз.
-const APP_VERSION = "27";
+const APP_VERSION = "28";
 (() => {
   fetch('version.txt?t=' + Date.now(), { cache: 'no-store' }).then(r => r.ok ? r.text() : '').then(v => {
     v = (v || '').trim();
@@ -504,10 +504,25 @@ function showTab(sec) {
 });
 showTab(sections[store.get('tab')] || store.get('tab') === 'Все' ? store.get('tab') : 'Основные');
 
+// Очередь источников: сначала тот, что сработал в прошлый раз, потом те, что чаще работали именно у тебя
+let queue = [], round = 1;
+const scoreOf = (u) => { try { return JSON.parse(store.get('sc:' + u) || '[0,0]'); } catch (e) { return [0, 0]; } };
+function score(u, good) {
+  let [ok, bad] = scoreOf(u);
+  if (good) { ok = Math.min(ok + 1, 20); bad = Math.max(bad - 2, 0); } else bad = Math.min(bad + 1, 5);
+  store.set('sc:' + u, JSON.stringify([ok, bad]));
+}
+const rank = (ch, i) => { const [ok, bad] = scoreOf(ch.sources[i]); return bad * 3 - Math.min(ok, 5) + i * 0.01; };
+const queueNext = (ci, si) => { const i = queue.indexOf(si); return queue.length ? queue[(i + 1) % queue.length] : si + 1; };
+
 function startChannel(ci) {
   const ch = CHANNELS[ci];
-  const saved = parseInt(store.get('src' + ci), 10);
-  play(ci, Number.isInteger(saved) && saved < ch.sources.length ? saved : 0, true, 0);
+  let saved = parseInt(store.get('src' + ci), 10);
+  if (!(Number.isInteger(saved) && saved < ch.sources.length)) saved = 0;
+  const rest = ch.sources.map((_, i) => i).filter(i => i !== saved).sort((a, b) => rank(ch, a) - rank(ch, b));
+  queue = [saved, ...rest];
+  round = 1;
+  play(ci, saved, true, 0);
 }
 // При открытии сразу включаем канал, который смотрели в прошлый раз (в первый раз — Первый)
 (() => {
@@ -569,9 +584,14 @@ function stop() {
 // tried — сколько ссылок уже перебрали, чтобы обойти круг один раз, начиная с запомненной
 async function play(ci, si, autoNext, tried = 0, retried = false) {
   const ch = CHANNELS[ci];
+  // Все источники обошли — не сдаёмся: через паузу начинаем новый круг (молчащий сейчас источник через минуту может заработать)
   if (tried >= ch.sources.length) {
-    setStatus('<b>' + ch.name + '</b> · все источники сейчас не отвечают, попробуй позже');
-    document.getElementById('sub' + ci).textContent = 'Недоступен';
+    round++;
+    const pause = Math.min(3000 * (round - 1), 20000), my = ++attempt;
+    stop();
+    setStatus('<b>' + ch.name + '</b> · все источники пока молчат, новая попытка через ' + pause / 1000 + ' с (круг ' + round + ')');
+    document.getElementById('sub' + ci).textContent = 'Ищу рабочий источник…';
+    setTimeout(() => { if (my === attempt && current === ci) play(ci, queue[0] ?? 0, true, 0); }, pause);
     return;
   }
   si = si % ch.sources.length;
@@ -589,10 +609,10 @@ async function play(ci, si, autoNext, tried = 0, retried = false) {
 
   const url = ch.sources[si];
   let done = false, played = false, firstT = null, lastMove = Date.now();
-  const next = () => { if (autoNext && my === attempt) play(ci, si + 1, true, tried + 1); };
+  const next = () => { if (autoNext && my === attempt) play(ci, queueNext(ci, si), true, tried + 1); };
   const fail = () => {
     if (done || my !== attempt) return; done = true;
-    mark(ci, si, 'bad');
+    mark(ci, si, 'bad'); score(url, false);
     document.getElementById('sub' + ci).textContent = 'Источник ' + (si + 1) + ' не отвечает';
     if (autoNext && tried + 1 < ch.sources.length) setStatus('<b>' + ch.name + '</b> · источник ' + (si + 1) + ' не отвечает, пробую следующий…');
     else if (!autoNext) setStatus('<b>' + ch.name + '</b> · источник ' + (si + 1) + ' не отвечает');
@@ -601,7 +621,7 @@ async function play(ci, si, autoNext, tried = 0, retried = false) {
   const ok = () => {
     if (done || my !== attempt) return; done = true; played = true;
     clearTimeout(timer);
-    mark(ci, si, 'ok');
+    mark(ci, si, 'ok'); score(url, true); round = 1;
     store.set('src' + ci, si); store.set('last', ch.name);
     setStatus('<b>' + ch.name + '</b> · идёт, источник ' + (si + 1) + (video.muted ? ' · включи звук' : ''), true);
     document.getElementById('sub' + ci).textContent = 'Идёт · источник ' + (si + 1);
@@ -629,9 +649,9 @@ async function play(ci, si, autoNext, tried = 0, retried = false) {
   watch = setInterval(() => {
     if (my !== attempt || !played || video.paused) { lastMove = Date.now(); return; }
     if (Date.now() - lastMove > 15000) {
-      clearInterval(watch); mark(ci, si, 'bad');
+      clearInterval(watch); mark(ci, si, 'bad'); score(url, false);
       setStatus('<b>' + ch.name + '</b> · поток завис, переключаю…');
-      play(ci, si + 1, true, tried + 1);
+      play(ci, queueNext(ci, si), true, 0);
     }
   }, 3000);
 
@@ -642,8 +662,31 @@ async function play(ci, si, autoNext, tried = 0, retried = false) {
   try { await loadHls(); } catch (e) { fail(); return; }
   if (my !== attempt) return;
   if (!window.Hls || !Hls.isSupported()) { fail(); return; }
-  hls = new Hls({ manifestLoadingTimeOut: 10000, lowLatencyMode: false, backBufferLength: 30 });
-  hls.on(Hls.Events.ERROR, (e, d) => { if (d.fatal) fail(); });
+  // Как у YouTube: старт с качества по прошлой скорости интернета, повышаем осторожно, при просадке сразу вниз;
+  // больше повторов при секундных обрывах; запас 30 с; не грузим качество больше, чем размер экрана
+  const bw = parseInt(store.get('bw'), 10) || 800000;
+  const retry = (n) => ({ maxNumRetry: n, retryDelayMs: 1000, maxRetryDelayMs: 8000 });
+  hls = new Hls({
+    lowLatencyMode: false, backBufferLength: 30, maxBufferLength: 30, maxMaxBufferLength: 60,
+    abrEwmaDefaultEstimate: Math.max(500000, Math.min(bw * 0.7, 4000000)),
+    abrBandWidthFactor: 0.8, abrBandWidthUpFactor: 0.6, capLevelToPlayerSize: true, startFragPrefetch: true,
+    manifestLoadPolicy: { default: { maxTimeToFirstByteMs: 10000, maxLoadTimeMs: 15000, timeoutRetry: retry(1), errorRetry: retry(1) } },
+    playlistLoadPolicy: { default: { maxTimeToFirstByteMs: 10000, maxLoadTimeMs: 15000, timeoutRetry: retry(3), errorRetry: retry(4) } },
+    fragLoadPolicy: { default: { maxTimeToFirstByteMs: 10000, maxLoadTimeMs: 25000, timeoutRetry: retry(4), errorRetry: retry(6) } },
+  });
+  // Мелкие сбои чиним на месте, а не переключаем источник (переключение — это лишние 5–10 секунд)
+  let fixes = 0;
+  hls.on(Hls.Events.ERROR, (e, d) => {
+    if (!d.fatal) return;
+    if (fixes < 2 && d.type === Hls.ErrorTypes.MEDIA_ERROR) { fixes++; hls.recoverMediaError(); return; }
+    if (fixes < 2 && d.type === Hls.ErrorTypes.NETWORK_ERROR && played) { fixes++; hls.startLoad(); return; }
+    fail();
+  });
+  let bwSaved = 0;
+  hls.on(Hls.Events.FRAG_LOADED, () => {
+    const b = hls && hls.bandwidthEstimate;
+    if (b > 0 && Date.now() - bwSaved > 10000) { bwSaved = Date.now(); store.set('bw', String(Math.round(b))); }
+  });
   hls.on(Hls.Events.MANIFEST_PARSED, start);
   hls.loadSource(url);
   hls.attachMedia(video);
