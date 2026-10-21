@@ -140,15 +140,15 @@
   </summary>
   <ol>
     <li>Установи приложение <b>Send files to TV</b> из Google Play — и на телевизор, и на Android-телефон.</li>
-    <li>На телефоне нажми <b>«Скачать APK»</b> ниже — файл сохранится в «Загрузки».</li>
-    <li>Открой Send files to TV на обоих устройствах: на телевизоре нажми <b>«Получить»</b>, на телефоне — <b>«Отправить»</b> и выбери файл <b>rus-tv.apk</b>.</li>
+    <li>Нажми <b>«Получить APK»</b> ниже — бот пришлёт файл <b>rus-tv.apk</b> в чат. На телефоне сохрани его: меню файла (⋮) → «Сохранить в загрузки».</li>
+    <li>Открой Send files to TV на обоих устройствах: на телевизоре нажми <b>«Получить»</b>, на телефоне — <b>«Отправить»</b> и выбери rus-tv.apk.</li>
     <li>На телевизоре открой полученный файл и нажми <b>«Установить»</b>. Если телевизор спросит — разреши установку из этого источника.</li>
   </ol>
   <div class="btns">
-    <button class="main" id="tvApk">Скачать APK</button>
+    <button class="main" id="tvApk">Получить APK</button>
   </div>
 </details>
-<footer>версия 25</footer>
+<footer>версия 26</footer>
 </div>
 </div>
 
@@ -159,7 +159,7 @@
   upd(); addEventListener('resize', upd); addEventListener('orientationchange', () => setTimeout(upd, 300));
 })();
 // Telegram держит старую версию в кэше. Сверяем номер версии с сайтом и, если вышла новая, перезагружаемся один раз.
-const APP_VERSION = "25";
+const APP_VERSION = "26";
 (() => {
   fetch('version.txt?t=' + Date.now(), { cache: 'no-store' }).then(r => r.ok ? r.text() : '').then(v => {
     v = (v || '').trim();
@@ -643,9 +643,22 @@ async function play(ci, si, autoNext, tried = 0, retried = false) {
 // Карточка «rus tv для телевизора»
 (() => {
   const APK = 'https://github.com/bvrgames/BVR_TV/releases/download/tv/rus-tv.apk';
-  document.getElementById('tvApk').onclick = () => {
+  const btn = document.getElementById('tvApk');
+  btn.onclick = () => {
     const w = window.Telegram && window.Telegram.WebApp;
-    if (w && w.openLink && w.initData) w.openLink(APK); else location.href = APK;
+    if (!(w && w.initData)) { location.href = APK; return; } // открыли не в Telegram — просто скачиваем
+    if (btn.disabled) return;
+    btn.disabled = true; btn.textContent = 'Отправляю…';
+    fetch('https://rustv.bvrhockey.workers.dev/apk', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ initData: w.initData }),
+    }).then(r => r.json()).then(r => {
+      if (!r.ok) throw 0;
+      btn.textContent = 'Файл в чате с ботом ✓';
+      setTimeout(() => { btn.disabled = false; btn.textContent = 'Получить APK'; }, 5000);
+    }).catch(() => {
+      btn.disabled = false; btn.textContent = 'Не вышло — скачать напрямую';
+      btn.onclick = () => w.openLink ? w.openLink(APK) : (location.href = APK);
+    });
   };
 })();
 </script>

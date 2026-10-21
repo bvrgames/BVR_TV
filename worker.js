@@ -8,7 +8,7 @@ const ALLOWED_HOSTS = null;
 
 const CORS = {
   "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Methods": "GET, HEAD, OPTIONS",
+  "Access-Control-Allow-Methods": "GET, HEAD, POST, OPTIONS",
   "Access-Control-Allow-Headers": "*",
 };
 
@@ -34,7 +34,8 @@ function rewritePlaylist(text, baseUrl, origin, ref) {
 // Токен бота хранится секретом TELEGRAM_BOT_TOKEN в Cloudflare (кладётся туда автоматически из GitHub).
 const APP_URL = "https://bvrgames.github.io/BVR_TV/";
 const APK_URL = "https://github.com/bvrgames/BVR_TV/releases/download/tv/rus-tv.apk";
-const TV_SHORT = "rustv.bvrhockey.workers.dev/tv";
+const DRIVE_URL = "https://drive.google.com/drive/folders/1S_JAApDn_H-KI_ha14Hs77xLHIuUeGgW?usp=sharing";
+const TV_KB = { inline_keyboard: [[{ text: "📁 APK на Google Диске", url: DRIVE_URL }]] };
 const WELCOME =
   "Привет! Это <b>rus tv</b> — русские каналы прямо в Telegram 📺\n\n" +
   "Нажми «Смотреть ТВ» и выбери канал: Первый, Россия 1, НТВ, СТС, ТНТ, спорт, кино и детские.\n\n" +
@@ -42,11 +43,12 @@ const WELCOME =
   "Есть и <b>приложение для телевизора</b> на Android TV — с программой передач и управлением с пульта.";
 const TV_TEXT =
   "📺 <b>rus tv для телевизора</b>\n\n" +
-  "Работает на телевизорах и приставках с Android TV. Каналы листаются стрелками пульта, видно, что идёт сейчас, обновляется само.\n\n" +
+  "Работает на телевизорах и приставках с Android TV: каналы листаются пультом, видно, что идёт сейчас, обновляется само.\n\n" +
   "<b>Как поставить:</b>\n" +
-  "1. На телевизоре открой Google Play и установи приложение <b>Downloader</b>.\n" +
-  "2. В Downloader введи адрес:\n<code>" + TV_SHORT + "</code>\n" +
-  "3. Нажми «Установить». Если телевизор спросит — разреши установку из неизвестных источников.";
+  "1. Установи приложение <b>Send files to TV</b> из Google Play — и на телевизор, и на Android-телефон.\n" +
+  "2. Сохрани файл rus-tv.apk из этого чата на телефон: открой меню файла (⋮) → «Сохранить в загрузки».\n" +
+  "3. Открой Send files to TV на обоих устройствах: на телевизоре нажми «Получить», на телефоне — «Отправить» и выбери rus-tv.apk.\n" +
+  "4. На телевизоре открой полученный файл и нажми «Установить». Если телевизор спросит — разреши установку из этого источника.";
 const DONATE_TEXT =
   "⭐ <b>Поддержать rus tv</b>\n\n" +
   "Приложение бесплатное и без рекламы. Если оно тебе нравится — можно поддержать проект звёздами Telegram. Спасибо!";
@@ -73,11 +75,56 @@ function tg(token, method, body) {
   });
 }
 
-function sendTv(token, chat) {
-  return tg(token, "sendMessage", {
-    chat_id: chat, text: TV_TEXT, parse_mode: "HTML",
-    reply_markup: { inline_keyboard: [[{ text: "⬇️ Скачать APK", url: APK_URL }]] },
-  });
+// Бот сам присылает APK файлом в чат. По ссылке Telegram .apk не берёт — поэтому скачиваем и загружаем.
+async function sendApk(token, chat) {
+  let ver = "";
+  try {
+    const v = await fetch("https://github.com/bvrgames/BVR_TV/releases/download/tv/tv-version.txt");
+    if (v.ok) ver = " · версия 1." + (await v.text()).trim().split(/\s+/)[0];
+  } catch (e) {}
+  const apk = await fetch(APK_URL);
+  if (!apk.ok) return false;
+  const fd = new FormData();
+  fd.append("chat_id", String(chat));
+  fd.append("document", new Blob([await apk.arrayBuffer()], { type: "application/vnd.android.package-archive" }), "rus-tv.apk");
+  fd.append("caption", "📺 rus tv для Android TV" + ver);
+  const r = await fetch("https://api.telegram.org/bot" + token + "/sendDocument", { method: "POST", body: fd });
+  return r.ok;
+}
+
+async function sendTv(token, chat) {
+  await tg(token, "sendMessage", { chat_id: chat, text: TV_TEXT, parse_mode: "HTML", reply_markup: TV_KB });
+  await sendApk(token, chat);
+}
+
+// Проверка, что запрос пришёл из нашего приложения в Telegram (подпись initData), → пользователь
+async function webAppUser(initData, token) {
+  const p = new URLSearchParams(initData || "");
+  const hash = p.get("hash");
+  if (!hash) return null;
+  p.delete("hash");
+  const dcs = [...p.entries()].sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0)).map(([k, v]) => k + "=" + v).join("\n");
+  const enc = new TextEncoder();
+  const k1 = await crypto.subtle.importKey("raw", enc.encode("WebAppData"), { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
+  const secret = await crypto.subtle.sign("HMAC", k1, enc.encode(token));
+  const k2 = await crypto.subtle.importKey("raw", secret, { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
+  const sig = [...new Uint8Array(await crypto.subtle.sign("HMAC", k2, enc.encode(dcs)))].map((b) => b.toString(16).padStart(2, "0")).join("");
+  if (sig !== hash) return null;
+  try { return JSON.parse(p.get("user") || "null"); } catch (e) { return null; }
+}
+
+// Кнопка «Получить APK» в приложении → бот присылает файл и инструкцию в чат
+async function handleApkRequest(request, env) {
+  const json = (o, st) => new Response(JSON.stringify(o), { status: st || 200, headers: { ...CORS, "Content-Type": "application/json" } });
+  const token = env.TELEGRAM_BOT_TOKEN;
+  if (!token) return json({ ok: false, error: "no token" }, 503);
+  let body = {};
+  try { body = await request.json(); } catch (e) {}
+  const user = await webAppUser(body.initData, token);
+  if (!user || !user.id) return json({ ok: false, error: "bad initData" }, 403);
+  await tg(token, "sendMessage", { chat_id: user.id, text: TV_TEXT, parse_mode: "HTML", reply_markup: TV_KB });
+  const ok = await sendApk(token, user.id);
+  return json({ ok });
 }
 
 function sendDonate(token, chat) {
@@ -148,12 +195,13 @@ export default {
 
     const reqUrl = new URL(request.url);
     if (reqUrl.pathname === "/tg" && request.method === "POST") return handleBot(request, env);
+    if (reqUrl.pathname === "/apk" && request.method === "POST") return handleApkRequest(request, env);
     // Короткий адрес для Downloader на телевизоре: /tv → свежий APK
     if (reqUrl.pathname === "/tv" || reqUrl.pathname === "/tv/" || reqUrl.pathname === "/tv.apk") {
       return Response.redirect(APK_URL, 302);
     }
     const target = reqUrl.searchParams.get("u");
-    if (!target) return new Response("BVR TV proxy работает (версия 5)", { headers: CORS });
+    if (!target) return new Response("BVR TV proxy работает (версия 6)", { headers: CORS });
 
     let t;
     try { t = new URL(target); } catch (e) {
