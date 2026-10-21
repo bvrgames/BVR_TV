@@ -76,7 +76,7 @@
   .fsinfo b { font-size:20px; display:block; }
   .fsinfo span { font-size:14px; color:#c7c7cc; display:block; margin-top:2px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
   html body:not(.fs) .fsinfo { display:none; }
-  /* Подсказки: VPN, «на экран Домой» */
+  /* Подсказка «на экран Домой» */
   .note { margin:14px 16px 0; padding:12px 14px; border-radius:14px; background:var(--row); font-size:14px; line-height:1.4; color:#d1d1d6; }
   .note[hidden] { display:none; }
   .note b { color:#fff; }
@@ -184,25 +184,10 @@
 </div>
 <div class="side">
 <nav class="tabs" id="tabs"></nav>
-<div class="note" id="vpnNote" hidden>Похоже, у тебя включён <b>VPN</b> — каналы из России могут грузиться медленнее или не открываться. Открой rus tv в браузере без VPN — там видео идёт напрямую.
-  <div class="nb"><button class="main" id="vpnOpen">Открыть в браузере</button><button id="vpnHide">Не показывать</button></div></div>
-<div class="note" id="homeNote" hidden>Добавь rus tv на экран «Домой» — будет как приложение, без Telegram и VPN: <b>Поделиться</b> → <b>На экран «Домой»</b>.
+<div class="note" id="homeNote" hidden>Добавь rus tv на экран «Домой» — будет как приложение: <b>Поделиться</b> → <b>На экран «Домой»</b>.
   <div class="nb"><button class="main" id="homeInstall" hidden>Установить</button><button id="homeHide">Понятно</button></div></div>
 <p class="hint">Нажми на канал. Если источник не отвечает, приложение само попробует следующий. Нажми на видео — справа появятся кружки источников: зелёный работает, красный нет, серый ещё не проверен; листай их или нажми нужный. ☆ — в избранное. Во весь экран свайп влево/вправо переключает каналы.</p>
 <div id="lists"></div>
-<details class="tvcard" id="webcard" hidden>
-  <summary>
-    <span class="ic"><svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3c2.5 2.7 2.5 15.3 0 18M12 3c-2.5 2.7-2.5 15.3 0 18"/></svg></span>
-    <span class="tt"><div class="t1">Смотреть без Telegram</div><div class="t2">В браузере видео идёт напрямую — без VPN быстрее</div></span>
-    <span class="chev">›</span>
-  </summary>
-  <ol>
-    <li>Нажми <b>«Открыть в браузере»</b> — rus tv откроется в Safari или Chrome.</li>
-    <li>Добавь на экран «Домой»: в Safari — <b>Поделиться</b> → <b>На экран «Домой»</b>, в Chrome — <b>⋮</b> → <b>Установить приложение</b>.</li>
-    <li>Если пользуешься VPN — в браузере его можно не включать.</li>
-  </ol>
-  <div class="btns"><button class="main" id="webOpen">Открыть в браузере</button></div>
-</details>
 <details class="tvcard" id="tvcard">
   <summary>
     <span class="ic"><svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="18" height="12" rx="2"/><path d="M8 21h8M12 17v4"/></svg></span>
@@ -230,7 +215,7 @@
   upd(); addEventListener('resize', upd); addEventListener('orientationchange', () => setTimeout(upd, 300));
 })();
 // Telegram держит старую версию в кэше. Сверяем номер версии с сайтом и, если вышла новая, перезагружаемся один раз.
-const APP_VERSION = "31";
+const APP_VERSION = "32";
 (() => {
   fetch('version.txt?t=' + Date.now(), { cache: 'no-store' }).then(r => r.ok ? r.text() : '').then(v => {
     v = (v || '').trim();
@@ -945,23 +930,6 @@ function zap(dir) {
   });
 })();
 
-// ---------- Без Telegram и без VPN ----------
-const SITE_URL = 'https://rus-tv.vercel.app/';
-const openInBrowser = () => { const t = tgApp(); if (t && t.openLink && t.initData) t.openLink(SITE_URL); else location.href = SITE_URL; };
-window.tgExtras = () => {
-  const t = tgApp();
-  if (!(t && t.initData)) return;
-  document.getElementById('webcard').hidden = false;
-  // Подсказка про VPN: русский Telegram, а адрес — не российский
-  const lang = ((t.initDataUnsafe && t.initDataUnsafe.user && t.initDataUnsafe.user.language_code) || '').toLowerCase();
-  if (!lang.startsWith('ru') || store.get('vpnHide') === '1') return;
-  fetch('https://rustv.bvrhockey.workers.dev/geo').then(r => r.json()).then(g => {
-    if (g && g.country && g.country !== 'RU') document.getElementById('vpnNote').hidden = false;
-  }).catch(() => {});
-};
-document.getElementById('webOpen').onclick = openInBrowser;
-document.getElementById('vpnOpen').onclick = openInBrowser;
-document.getElementById('vpnHide').onclick = () => { store.set('vpnHide', '1'); document.getElementById('vpnNote').hidden = true; };
 // В обычном браузере: предложить «на экран Домой» (один раз), на Android — кнопка «Установить»
 (() => {
   const inTg = () => { const t = tgApp(); return !!(t && t.initData); };
