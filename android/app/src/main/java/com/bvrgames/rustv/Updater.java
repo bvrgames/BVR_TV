@@ -43,6 +43,7 @@ final class Updater {
     private int readyVersion;
     private File readyFile;
     private boolean asked, waitingPermission;
+    private volatile boolean installing;
 
     Updater(Activity a, OkHttpClient http, ExecutorService pool, Runnable onBeforeInstall, Note note) {
         this.a = a; this.http = http; this.pool = pool; this.onBeforeInstall = onBeforeInstall; this.note = note;
@@ -137,6 +138,7 @@ final class Updater {
     private void install() {
         final File f = readyFile;
         if (f == null || !f.exists()) return;
+        installing = true;
         onBeforeInstall.run();
         pool.execute(() -> {
             try {
@@ -159,6 +161,7 @@ final class Updater {
                     s.commit(pend.getIntentSender());
                 }
             } catch (Exception e) {
+                installing = false;
                 a.runOnUiThread(() -> { asked = false; });
             }
         });
@@ -166,15 +169,22 @@ final class Updater {
 
     /** Ответ системы установки приходит в onNewIntent. */
     void onInstallResult(Intent i) {
+        // Безопасность: окно экрана открыто для других приложений, поэтому верим только ответу на НАШУ установку
+        // и открываем только системное окно подтверждения установки — никакой другой экран через нас не запустить.
+        if (!installing) return;
         int status = i.getIntExtra(PackageInstaller.EXTRA_STATUS, -999);
         if (status == PackageInstaller.STATUS_PENDING_USER_ACTION) {
             Intent confirm = i.getParcelableExtra(Intent.EXTRA_INTENT);
-            if (confirm != null) {
+            String act = confirm == null ? null : confirm.getAction();
+            if (confirm != null && act != null && act.startsWith("android.content.pm.action.CONFIRM_")) {
+                confirm.setFlags(confirm.getFlags() & ~(Intent.FLAG_GRANT_READ_URI_PERMISSION | Intent.FLAG_GRANT_WRITE_URI_PERMISSION
+                        | Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION | Intent.FLAG_GRANT_PREFIX_URI_PERMISSION));
                 confirm.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
                 try { a.startActivity(confirm); } catch (Exception ignored) {}
             }
-        } else if (status != PackageInstaller.STATUS_SUCCESS) {
-            asked = false; // отменили или ошибка — предложим в следующий раз
+        } else {
+            installing = false;
+            if (status != PackageInstaller.STATUS_SUCCESS) asked = false; // отменили или ошибка — предложим в следующий раз
         }
     }
 

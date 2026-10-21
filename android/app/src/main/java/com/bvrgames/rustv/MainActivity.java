@@ -1,7 +1,10 @@
 package com.bvrgames.rustv;
 
 import android.app.Activity;
+import android.app.UiModeManager;
 import android.content.Intent;
+import android.content.pm.PackageManager;
+import android.content.res.Configuration;
 import android.content.SharedPreferences;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
@@ -19,7 +22,9 @@ import android.os.Looper;
 import android.text.TextUtils;
 import android.util.TypedValue;
 import android.view.Gravity;
+import android.view.GestureDetector;
 import android.view.KeyEvent;
+import android.view.MotionEvent;
 import android.view.View;
 import android.view.ViewGroup;
 import android.view.WindowManager;
@@ -121,7 +126,13 @@ public class MainActivity extends Activity {
     private ChannelAdapter adapter;
     private FrameLayout infoBadge;
     private TextView infoName, infoStatus, liveTag, infoNow, infoNext;
-    private LinearLayout infoDots;
+    private SourceWheel wheel;
+    private LinearLayout wheelBox;
+    private TextView wheelCaption;
+    private boolean isTv = true;       // телевизор или телефон/планшет — от этого зависит управление
+    private boolean wheelFocus;        // в меню выбраны кружки источников (а не список каналов)
+    private GestureDetector gestures;
+    private boolean touchOutside;
     private ProgressBar infoProgress;
 
     private boolean splashDone;
@@ -142,6 +153,9 @@ public class MainActivity extends Activity {
         super.onCreate(saved);
         getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON | WindowManager.LayoutParams.FLAG_FULLSCREEN);
         prefs = getSharedPreferences("rustv", MODE_PRIVATE);
+        UiModeManager um = (UiModeManager) getSystemService(UI_MODE_SERVICE);
+        isTv = (um != null && um.getCurrentModeType() == Configuration.UI_MODE_TYPE_TELEVISION)
+                || !getPackageManager().hasSystemFeature(PackageManager.FEATURE_TOUCHSCREEN);
         http = new OkHttpClient.Builder()
                 .connectTimeout(6, TimeUnit.SECONDS).readTimeout(10, TimeUnit.SECONDS)
                 .connectionPool(new ConnectionPool(8, 2, TimeUnit.MINUTES))
@@ -490,38 +504,52 @@ public class MainActivity extends Activity {
 
     // ---------- пульт ----------
 
+    /*
+     * Пульт.
+     *  Смотрим ТВ: ▲▼◄► — переключение каналов, OK — меню.
+     *  В меню: ▲▼ — по списку каналов, ► — к кружкам источников (там ▲▼ — выбор источника, OK — включить сразу),
+     *          ◄ — обратно к списку, «Назад» — закрыть меню.
+     */
     @Override
     public boolean dispatchKeyEvent(KeyEvent e) {
         if (!splashDone) {
             if (e.getAction() == KeyEvent.ACTION_UP) hideSplash();
             return true;
         }
+        if (panel.getVisibility() == View.VISIBLE) {
+            int code = e.getKeyCode();
+            boolean down = e.getAction() == KeyEvent.ACTION_DOWN;
+            if (down) panelTimer();
+            if (code == KeyEvent.KEYCODE_DPAD_RIGHT) { if (down) setWheelFocus(true); return true; }
+            if (code == KeyEvent.KEYCODE_DPAD_LEFT) { if (down) setWheelFocus(false); return true; }
+            if (wheelFocus) {
+                switch (code) {
+                    case KeyEvent.KEYCODE_DPAD_UP: if (down) pickSource(-1); return true;
+                    case KeyEvent.KEYCODE_DPAD_DOWN: if (down) pickSource(1); return true;
+                    case KeyEvent.KEYCODE_DPAD_CENTER:
+                    case KeyEvent.KEYCODE_ENTER:
+                    case KeyEvent.KEYCODE_NUMPAD_ENTER:
+                        if (down && e.getRepeatCount() == 0) applyPickNow();
+                        return true;
+                }
+            }
+            if (code == KeyEvent.KEYCODE_MENU) { if (down) hidePanel(); return true; }
+        }
         return super.dispatchKeyEvent(e);
     }
 
     @Override
     public boolean onKeyDown(int code, KeyEvent e) {
-        boolean panelOpen = panel.getVisibility() == View.VISIBLE;
-        if (panelOpen) {
-            panelTimer();
-            switch (code) {
-                case KeyEvent.KEYCODE_DPAD_RIGHT:
-                case KeyEvent.KEYCODE_MENU:
-                    hidePanel(); return true;
-            }
-            return super.onKeyDown(code, e);
-        }
+        if (panel.getVisibility() == View.VISIBLE) return super.onKeyDown(code, e);
         switch (code) {
+            case KeyEvent.KEYCODE_DPAD_UP:
             case KeyEvent.KEYCODE_DPAD_LEFT:
             case KeyEvent.KEYCODE_CHANNEL_DOWN:
                 zap(-1); return true;
+            case KeyEvent.KEYCODE_DPAD_DOWN:
             case KeyEvent.KEYCODE_DPAD_RIGHT:
             case KeyEvent.KEYCODE_CHANNEL_UP:
                 zap(1); return true;
-            case KeyEvent.KEYCODE_DPAD_UP:
-                pickSource(-1); return true;
-            case KeyEvent.KEYCODE_DPAD_DOWN:
-                pickSource(1); return true;
             case KeyEvent.KEYCODE_DPAD_CENTER:
             case KeyEvent.KEYCODE_ENTER:
             case KeyEvent.KEYCODE_NUMPAD_ENTER:
@@ -531,6 +559,58 @@ public class MainActivity extends Activity {
                 showInfo(5000); return true;
         }
         return super.onKeyDown(code, e);
+    }
+
+    /*
+     * Телефон: свайп в любую сторону — переключение канала, нажатие — меню.
+     * В меню кружок источника выбирается пальцем; нажатие мимо меню — закрыть.
+     */
+    @Override
+    public boolean dispatchTouchEvent(MotionEvent e) {
+        if (!splashDone) {
+            if (e.getActionMasked() == MotionEvent.ACTION_UP) hideSplash();
+            return true;
+        }
+        if (panel.getVisibility() == View.VISIBLE) {
+            if (e.getActionMasked() == MotionEvent.ACTION_DOWN)
+                touchOutside = !inside(panel, e) && !inside(wheelBox, e);
+            if (touchOutside) {
+                if (e.getActionMasked() == MotionEvent.ACTION_UP) hidePanel();
+                return true;
+            }
+            panelTimer();
+            return super.dispatchTouchEvent(e);
+        }
+        if (gestures != null) gestures.onTouchEvent(e);
+        return true;
+    }
+
+    private static boolean inside(View v, MotionEvent e) {
+        if (v == null || v.getVisibility() != View.VISIBLE) return false;
+        int[] xy = new int[2];
+        v.getLocationOnScreen(xy);
+        float x = e.getRawX(), y = e.getRawY();
+        return x >= xy[0] && x < xy[0] + v.getWidth() && y >= xy[1] && y < xy[1] + v.getHeight();
+    }
+
+    private void setupGestures() {
+        final float min = dp(56), minV = dp(300);
+        gestures = new GestureDetector(this, new GestureDetector.SimpleOnGestureListener() {
+            @Override public boolean onDown(MotionEvent e) { return true; }
+            @Override public boolean onSingleTapUp(MotionEvent e) { showPanel(); return true; }
+            @Override public boolean onFling(MotionEvent a, MotionEvent b, float vx, float vy) {
+                if (a == null || b == null) return false;
+                float dx = b.getX() - a.getX(), dy = b.getY() - a.getY();
+                if (Math.abs(dx) > Math.abs(dy)) {
+                    if (Math.abs(dx) < min || Math.abs(vx) < minV) return false;
+                    zap(dx < 0 ? 1 : -1);          // влево — следующий, вправо — предыдущий
+                } else {
+                    if (Math.abs(dy) < min || Math.abs(vy) < minV) return false;
+                    zap(dy < 0 ? 1 : -1);          // вверх — следующий, вниз — предыдущий
+                }
+                return true;
+            }
+        });
     }
 
     @Override
@@ -564,18 +644,34 @@ public class MainActivity extends Activity {
         if (ci >= 0) startChannel(ci);
     };
 
-    /** ▲▼ — выбор источника по кружкам справа. Включаем выбранный, когда перестали жать. */
+    /** Выбор источника в колесе (стрелками или пальцем). Включаем выбранный, когда перестали листать. */
     private void pickSource(int dir) {
-        if (current < 0 || pendingZap >= 0) return;
+        if (current < 0) return;
         Channels.Channel ch = channels.get(current);
-        if (ch.sources.size() < 2) { setStatus("У этого канала один источник", MUTED, played); showInfo(2500); return; }
+        if (ch.sources.size() < 2) { updateDots(); return; }
         int from = pendingSrc >= 0 ? pendingSrc : currentSrc;
-        pendingSrc = (from + dir + ch.sources.size()) % ch.sources.size();
-        setStatus("Источник " + (pendingSrc + 1) + " из " + ch.sources.size(), Color.WHITE, false);
-        showInfo(0);
+        pickSourceAt((from + dir + ch.sources.size()) % ch.sources.size());
+    }
+
+    private void pickSourceAt(int si) {
+        if (current < 0) return;
+        pendingSrc = si;
         updateDots();
         ui.removeCallbacks(pickRun);
-        ui.postDelayed(pickRun, 600);
+        ui.postDelayed(pickRun, 700);
+    }
+
+    private void applyPickNow() {
+        if (pendingSrc < 0) return;
+        ui.removeCallbacks(pickRun);
+        pickRun.run();
+    }
+
+    private void setWheelFocus(boolean f) {
+        if (!f && pendingSrc >= 0) applyPickNow();
+        wheelFocus = f;
+        wheel.setFocusedLook(f);
+        list.animate().alpha(f ? 0.55f : 1f).setDuration(150).start();
     }
 
     private final Runnable pickRun = () -> {
@@ -592,6 +688,8 @@ public class MainActivity extends Activity {
     };
 
     // ---------- экран ----------
+
+    private float density() { return getResources().getDisplayMetrics().density; }
 
     private int dp(float v) { return Math.round(TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, v, getResources().getDisplayMetrics())); }
 
@@ -621,7 +719,6 @@ public class MainActivity extends Activity {
         playerView.setResizeMode(AspectRatioFrameLayout.RESIZE_MODE_FIT);
         playerView.setShutterBackgroundColor(Color.BLACK);
         playerView.setKeepScreenOn(true);
-        playerView.setOnClickListener(v -> { if (panel.getVisibility() == View.VISIBLE) hidePanel(); else showPanel(); });
         root.addView(playerView, new FrameLayout.LayoutParams(-1, -1));
 
         // Нижняя плашка: какой канал, что сейчас идёт и что с подключением
@@ -629,7 +726,7 @@ public class MainActivity extends Activity {
         infoBar.setOrientation(LinearLayout.HORIZONTAL);
         infoBar.setGravity(Gravity.CENTER_VERTICAL);
         infoBar.setPadding(dp(16), dp(12), dp(22), dp(12));
-        infoBar.setBackground(round(0xD91C1C1E, 16));
+        infoBar.setBackground(new Glass(dp(22), density()));
         infoBadge = new FrameLayout(this);
         infoBar.addView(infoBadge, new LinearLayout.LayoutParams(dp(76), dp(48)));
         LinearLayout col = new LinearLayout(this);
@@ -665,30 +762,40 @@ public class MainActivity extends Activity {
         infoBar.setVisibility(View.GONE);
         root.addView(infoBar, ip);
 
-        // Кружки источников — столбиком у правого края экрана
-        infoDots = new LinearLayout(this);
-        infoDots.setOrientation(LinearLayout.VERTICAL);
-        infoDots.setGravity(Gravity.CENTER_HORIZONTAL);
-        infoDots.setPadding(dp(8), dp(10), dp(8), dp(4));
-        infoDots.setBackground(round(0x59000000, 24));
-        FrameLayout.LayoutParams dp0 = new FrameLayout.LayoutParams(-2, -2, Gravity.END | Gravity.CENTER_VERTICAL);
-        dp0.rightMargin = dp(28);
-        infoDots.setVisibility(View.GONE);
-        root.addView(infoDots, dp0);
+        // Колесо источников — справа по центру, появляется только вместе с меню
+        wheelBox = new LinearLayout(this);
+        wheelBox.setOrientation(LinearLayout.VERTICAL);
+        wheelBox.setGravity(Gravity.CENTER_HORIZONTAL);
+        TextView wheelTitle = text(12, 0xB3FFFFFF, true);
+        wheelTitle.setText(isTv ? "ИСТОЧНИК  ►" : "ИСТОЧНИК");
+        wheelTitle.setGravity(Gravity.CENTER);
+        wheelTitle.setLetterSpacing(0.08f);
+        wheelBox.addView(wheelTitle);
+        wheel = new SourceWheel(this);
+        wheel.setListener(i -> { panelTimer(); pickSourceAt(i); });
+        wheelBox.addView(wheel);
+        wheelCaption = text(13, SOFT, false);
+        wheelCaption.setGravity(Gravity.CENTER);
+        wheelCaption.setPadding(dp(12), dp(5), dp(12), dp(5));
+        wheelCaption.setBackground(new Glass(dp(14), density()));
+        wheelBox.addView(wheelCaption, new LinearLayout.LayoutParams(-2, -2));
+        FrameLayout.LayoutParams wl = new FrameLayout.LayoutParams(-2, -2, Gravity.END | Gravity.CENTER_VERTICAL);
+        wl.rightMargin = dp(isTv ? 36 : 20);
+        wheelBox.setVisibility(View.GONE);
+        root.addView(wheelBox, wl);
 
         // Список каналов слева
         panel = new LinearLayout(this);
         panel.setOrientation(LinearLayout.VERTICAL);
-        GradientDrawable shade = new GradientDrawable(GradientDrawable.Orientation.LEFT_RIGHT, new int[]{0xF2000000, 0xE6000000, 0x00000000});
-        panel.setBackground(shade);
-        panel.setPadding(dp(28), dp(20), dp(60), dp(12));
+        panel.setBackground(new Glass(dp(28), density()));
+        panel.setPadding(dp(16), dp(6), dp(16), dp(14));
+        // Логотип с фиолетовым кружком-свечением, как в Telegram-боте
         ImageView logo = new ImageView(this);
-        logo.setImageResource(R.drawable.logo);
+        logo.setImageResource(R.drawable.logo_glow);
         logo.setAdjustViewBounds(true);
-        LinearLayout.LayoutParams logoLp = new LinearLayout.LayoutParams(-2, dp(34));
-        logoLp.leftMargin = dp(8);
+        LinearLayout.LayoutParams logoLp = new LinearLayout.LayoutParams(-2, dp(76));
+        logoLp.gravity = Gravity.CENTER_HORIZONTAL;
         panel.addView(logo, logoLp);
-        logoLp.bottomMargin = dp(12);
         list = new ListView(this);
         list.setDivider(new ColorDrawable(Color.TRANSPARENT));
         list.setDividerHeight(dp(2));
@@ -710,11 +817,15 @@ public class MainActivity extends Activity {
         panel.addView(list, new LinearLayout.LayoutParams(-1, 0, 1f));
         panel.addView(botCard());
         TextView hint = text(12, MUTED, false);
-        hint.setText("◄► каналы  ·  ▲▼ источник  ·  OK список  ·  версия " + BuildConfig.VERSION_NAME);
+        hint.setText((isTv ? "▲▼◄► каналы  ·  OK меню  ·  ► источники" : "Свайп — каналы  ·  нажатие — меню")
+                + "  ·  версия " + BuildConfig.VERSION_NAME);
         hint.setPadding(dp(8), dp(8), 0, 0);
         panel.addView(hint);
         panel.setVisibility(View.GONE);
-        root.addView(panel, new FrameLayout.LayoutParams(dp(440), -1, Gravity.START));
+        FrameLayout.LayoutParams pl = new FrameLayout.LayoutParams(dp(isTv ? 440 : 400), -1, Gravity.START);
+        pl.setMargins(dp(16), dp(16), 0, dp(16));
+        root.addView(panel, pl);
+        if (!isTv) setupGestures();
 
         // Заставка поверх всего
         splashBox = new FrameLayout(this);
@@ -731,7 +842,7 @@ public class MainActivity extends Activity {
         LinearLayout c = new LinearLayout(this);
         c.setGravity(Gravity.CENTER_VERTICAL);
         c.setPadding(dp(10), dp(10), dp(14), dp(10));
-        c.setBackground(round(0xFF1C1C1E, 14));
+        c.setBackground(new Glass(dp(18), density()));
         ImageView qr = new ImageView(this);
         qr.setImageResource(R.drawable.bot_qr);
         qr.setBackground(round(Color.WHITE, 8));
@@ -766,10 +877,9 @@ public class MainActivity extends Activity {
 
     private StateListDrawable selector() {
         StateListDrawable s = new StateListDrawable();
-        GradientDrawable on = round(0x40FFFFFF, 12);
-        s.addState(new int[]{android.R.attr.state_focused}, on);
-        s.addState(new int[]{android.R.attr.state_selected}, on);
-        s.addState(new int[]{android.R.attr.state_pressed}, on);
+        s.addState(new int[]{android.R.attr.state_focused}, new Glass(dp(14), density()).strength(1.6f).glow(ACCENT));
+        s.addState(new int[]{android.R.attr.state_selected}, new Glass(dp(14), density()).strength(1.6f).glow(ACCENT));
+        s.addState(new int[]{android.R.attr.state_pressed}, new Glass(dp(14), density()).strength(1.6f));
         s.addState(new int[]{}, new ColorDrawable(Color.TRANSPARENT));
         return s;
     }
@@ -781,6 +891,15 @@ public class MainActivity extends Activity {
         panel.setVisibility(View.VISIBLE);
         panel.setAlpha(0f);
         panel.animate().alpha(1f).setDuration(150).start();
+        wheelFocus = false;
+        wheel.setFocusedLook(false);
+        list.setAlpha(1f);
+        updateDots();
+        wheel.select(pendingSrc >= 0 ? pendingSrc : currentSrc, true);
+        wheelBox.setVisibility(View.VISIBLE);
+        wheelBox.setAlpha(0f);
+        wheelBox.setTranslationX(dp(24));
+        wheelBox.animate().alpha(1f).translationX(0).setDuration(200).start();
         int position = adapter.positionOf(Math.max(current, 0));
         list.requestFocus();
         list.setSelectionFromTop(position, dp(120));
@@ -789,7 +908,10 @@ public class MainActivity extends Activity {
 
     private void hidePanel() {
         ui.removeCallbacks(hidePanelRun);
+        if (pendingSrc >= 0) applyPickNow();
+        wheelFocus = false;
         panel.setVisibility(View.GONE);
+        wheelBox.setVisibility(View.GONE);
         playerView.requestFocus();
     }
 
@@ -799,7 +921,6 @@ public class MainActivity extends Activity {
     private final Runnable hideInfoRun = this::hideInfo;
     private void hideInfo() {
         infoBar.setVisibility(View.GONE);
-        if (infoDots != null) infoDots.animate().alpha(0f).setDuration(250).withEndAction(() -> infoDots.setVisibility(View.GONE)).start();
     }
 
     /** ms = 0 — держать, пока не придёт новое событие. */
@@ -807,18 +928,12 @@ public class MainActivity extends Activity {
         if (!splashDone || panel.getVisibility() == View.VISIBLE) return;
         if (pendingZap < 0 && current >= 0) fillInfo(current);
         infoBar.setVisibility(View.VISIBLE);
-        boolean dots = pendingZap < 0 && current >= 0 && channels.get(current).sources.size() > 1;
-        infoDots.animate().cancel();
-        infoDots.setAlpha(1f);
-        infoDots.setVisibility(dots ? View.VISIBLE : View.GONE);
-        if (dots) updateDots();
         ui.removeCallbacks(hideInfoRun);
         if (ms > 0) ui.postDelayed(hideInfoRun, ms);
     }
 
     private void fillInfo(int ci) {
         Channels.Channel ch = channels.get(ci);
-        if (ci != current) infoDots.setVisibility(View.GONE);
         infoName.setText(ch.name);
         infoBadge.removeAllViews();
         infoBadge.addView(badge(ch, 15), new FrameLayout.LayoutParams(-1, -1));
@@ -843,35 +958,24 @@ public class MainActivity extends Activity {
         }
     }
 
-    /** Кружки источников как в веб-версии: номер, зелёный — работает, красный — не отвечает, обведён — текущий. */
+    /** Колесо источников: выбранный в центре, статус точкой (зелёная — работает, красная — не отвечает). */
     private void updateDots() {
-        if (current < 0 || infoDots == null) return;
+        if (current < 0 || wheel == null) return;
         Channels.Channel ch = channels.get(current);
-        if (infoDots.getChildCount() != ch.sources.size()) {
-            infoDots.removeAllViews();
-            for (int i = 0; i < ch.sources.size(); i++) {
-                TextView d = text(13, Color.WHITE, true);
-                d.setGravity(Gravity.CENTER);
-                d.setText(String.valueOf(i + 1));
-                LinearLayout.LayoutParams l = new LinearLayout.LayoutParams(dp(30), dp(30));
-                l.bottomMargin = dp(6);
-                infoDots.addView(d, l);
-            }
-        }
-        for (int i = 0; i < ch.sources.size(); i++) {
-            TextView d = (TextView) infoDots.getChildAt(i);
+        int n = ch.sources.size();
+        int[] st = new int[n];
+        for (int i = 0; i < n; i++) {
             Long ms = probeMs.get(ch.sources.get(i));
-            boolean cur = pendingSrc >= 0 ? i == pendingSrc : i == currentSrc;
-            boolean playing = i == currentSrc && played;
-            int fill = playing || (ms != null && ms >= 0) ? OK : (ms != null ? BAD : 0xFF48484A);
-            GradientDrawable g = new GradientDrawable();
-            g.setShape(GradientDrawable.OVAL);
-            g.setColor((fill & 0x00FFFFFF) | (cur ? 0xE6000000 : 0x8C000000)); // полупрозрачные, выбранный ярче
-            if (cur) g.setStroke(dp(2.5f), Color.WHITE);
-            d.setBackground(g);
-            d.setScaleX(cur ? 1.15f : 1f); d.setScaleY(cur ? 1.15f : 1f);
-            d.setAlpha(cur ? 1f : 0.7f);
+            st[i] = ms == null ? SourceWheel.UNKNOWN : ms >= 0 ? SourceWheel.OK : SourceWheel.BAD;
         }
+        int sel = pendingSrc >= 0 ? pendingSrc : currentSrc;
+        boolean jump = wheel.getVisibility() != View.VISIBLE || wheelBox.getVisibility() != View.VISIBLE;
+        wheel.setData(n, sel, played ? currentSrc : -1, st, jump);
+        String cap;
+        if (n < 2) cap = "Один источник";
+        else if (pendingSrc >= 0 && pendingSrc != currentSrc) cap = "Источник " + (sel + 1) + " из " + n + (isTv ? " · нажми OK" : "");
+        else cap = "Источник " + (sel + 1) + " из " + n + (played ? " · идёт" : " · подключаюсь");
+        wheelCaption.setText(cap);
     }
 
     private void setStatus(String s, int color, boolean live) {
