@@ -41,6 +41,7 @@ final class SourceWheel extends View {
         num.setColor(0xFFFFFFFF);
         num.setTextAlign(Paint.Align.CENTER);
         num.setTypeface(Typeface.create(Typeface.DEFAULT, Typeface.BOLD));
+        num.setShadowLayer(3 * d, 0, d, 0x73000000); // цифра читается на светлом стекле
     }
 
     void setListener(Listener l) { listener = l; }
@@ -54,7 +55,7 @@ final class SourceWheel extends View {
         if (countChanged) {
             glass = new Glass[count];
             int b = Math.round(BASE * d);
-            for (int i = 0; i < count; i++) { glass[i] = Glass.circle(d); glass[i].setBounds(-b / 2, -b / 2, b / 2, b / 2); }
+            for (int i = 0; i < count; i++) { glass[i] = Glass.circle(d).frosted(); glass[i].setBounds(-b / 2, -b / 2, b / 2, b / 2); }
         }
         select(selected, jump || countChanged);
     }

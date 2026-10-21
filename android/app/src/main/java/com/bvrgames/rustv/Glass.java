@@ -42,6 +42,13 @@ final class Glass extends Drawable {
 
     static Glass circle(float density) { return new Glass(-1, density); }
 
+    // «Матовое» стекло для кружков источников — светлое, как кнопки Apple: светлая кромка, мягкая тень, блик слева сверху
+    private boolean frosted;
+    private final Paint fShadow = new Paint(Paint.ANTI_ALIAS_FLAG), fBody = new Paint(Paint.ANTI_ALIAS_FLAG),
+            fFrost = new Paint(Paint.ANTI_ALIAS_FLAG), fInner = new Paint(Paint.ANTI_ALIAS_FLAG),
+            fRim = new Paint(Paint.ANTI_ALIAS_FLAG), fSpec = new Paint(Paint.ANTI_ALIAS_FLAG);
+    Glass frosted() { frosted = true; rebuild(); return this; }
+
     Glass glow(int color) { if (glow != color) { glow = color; rebuild(); invalidateSelf(); } return this; }
     Glass tint(int color) { if (tint != color) { tint = color; rebuild(); invalidateSelf(); } return this; }
     Glass strength(float s) { if (strength != s) { strength = s; rebuild(); invalidateSelf(); } return this; }
@@ -82,14 +89,53 @@ final class Glass extends Drawable {
         spec.setShader(new LinearGradient(r.left + w * 0.15f, 0, r.right - w * 0.15f, 0,
                 new int[]{0, a(0xFFFFFF, Math.min(1f, 0.85f * s)), 0}, null, Shader.TileMode.CLAMP));
         halo.setStrokeWidth(density * 6);
-        halo.setColor(glow != 0 ? a(glow, 0.22f * s) : 0);
+        halo.setColor(glow != 0 ? a(glow, frosted ? 0.55f : 0.22f * s) : 0);
+        if (frosted) rebuildFrosted();
+    }
+
+    private void rebuildFrosted() {
+        float cx = r.centerX(), cy = r.centerY(), rad = Math.min(r.width(), r.height()) / 2f;
+        int t = tint == 0 ? 0xFF8E8E93 : tint;
+        float s = strength;
+        fShadow.setStyle(Paint.Style.STROKE);
+        fShadow.setStrokeWidth(density * 3);
+        fShadow.setColor(0x38000000);
+        fBody.setShader(new RadialGradient(cx, cy, rad, new int[]{
+                mix(t, 0xFFFFFFFF, 0.08f, Math.min(1f, 0.40f * (0.8f + 0.2f * s))),
+                mix(t, 0xFFFFFFFF, 0.16f, Math.min(1f, 0.48f * (0.8f + 0.2f * s))),
+                mix(t, 0xFFFFFFFF, 0.42f, Math.min(1f, 0.66f * (0.8f + 0.2f * s)))},
+                new float[]{0f, 0.72f, 1f}, Shader.TileMode.CLAMP));
+        fFrost.setShader(new LinearGradient(0, cy - rad, 0, cy + rad * 0.1f,
+                new int[]{a(0xFFFFFF, 0.22f), 0}, null, Shader.TileMode.CLAMP));
+        fInner.setStyle(Paint.Style.STROKE);
+        fInner.setStrokeWidth(density * 2.2f);
+        fInner.setColor(0x26000000);
+        fRim.setStyle(Paint.Style.STROKE);
+        fRim.setStrokeWidth(density * 1.3f * (s > 1.5f ? 1.3f : 1f));
+        fRim.setShader(new LinearGradient(cx - rad, cy - rad, cx + rad, cy + rad,
+                new int[]{a(0xFFFFFF, 0.9f), a(0xFFFFFF, 0.18f), a(0xFFFFFF, 0.10f), a(0xFFFFFF, 0.55f)},
+                new float[]{0f, 0.45f, 0.65f, 1f}, Shader.TileMode.CLAMP));
+        fSpec.setStyle(Paint.Style.STROKE);
+        fSpec.setStrokeCap(Paint.Cap.ROUND);
+        fSpec.setStrokeWidth(density * 1.8f);
+        fSpec.setColor(a(0xFFFFFF, 0.85f));
     }
 
     @Override
     public void draw(Canvas c) {
         if (r.isEmpty()) rebuild();
         int save = alpha < 255 ? c.saveLayerAlpha(new RectF(getBounds()), alpha) : c.save();
-        if (radius < 0) {
+        if (radius < 0 && frosted) {
+            float cx = r.centerX(), cy = r.centerY(), rad = Math.min(r.width(), r.height()) / 2f;
+            if (glow != 0) { halo.setStrokeWidth(density * 3.5f); c.drawCircle(cx, cy, rad + density * 2f, halo); }
+            else c.drawCircle(cx, cy, rad + density * 1.5f, fShadow);
+            c.drawCircle(cx, cy, rad, fBody);
+            c.drawCircle(cx, cy, rad, fFrost);
+            c.drawCircle(cx, cy, rad - density * 2.2f, fInner);
+            c.drawCircle(cx, cy, rad, fRim);
+            float sr = rad - density * 3.5f;
+            c.drawArc(new RectF(cx - sr, cy - sr, cx + sr, cy + sr), 195, 55, false, fSpec);
+        } else if (radius < 0) {
             float cx = r.centerX(), cy = r.centerY(), rad = Math.min(r.width(), r.height()) / 2f;
             if (glow != 0) c.drawCircle(cx, cy, rad - density * 2, halo);
             c.drawCircle(cx, cy, rad, base);

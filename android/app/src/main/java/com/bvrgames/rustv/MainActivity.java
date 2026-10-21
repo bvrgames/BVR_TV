@@ -181,6 +181,7 @@ public class MainActivity extends Activity {
                 .connectTimeout(6, TimeUnit.SECONDS).readTimeout(10, TimeUnit.SECONDS)
                 .connectionPool(new ConnectionPool(8, 2, TimeUnit.MINUTES))
                 .retryOnConnectionFailure(true).followRedirects(true).followSslRedirects(true)
+                .dns(MainActivity::ipv4First)
                 .build();
         pool = Executors.newFixedThreadPool(4);
         probePool = Executors.newFixedThreadPool(3); // не забиваем Wi-Fi проверками, пока стартует видео
@@ -806,6 +807,17 @@ public class MainActivity extends Activity {
     };
 
     // ---------- экран ----------
+
+    /*
+     * Сначала IPv4, потом IPv6. На многих домашних Wi-Fi IPv6 «есть, но не работает»: телефон по мобильной сети
+     * ходит по IPv4 и грузит быстро, а по Wi-Fi приложение сначала долго стучится по IPv6. Так этого не будет.
+     */
+    private static List<java.net.InetAddress> ipv4First(String host) throws java.net.UnknownHostException {
+        List<java.net.InetAddress> all = okhttp3.Dns.SYSTEM.lookup(host), v4 = new ArrayList<>(), v6 = new ArrayList<>();
+        for (java.net.InetAddress a : all) (a instanceof java.net.Inet4Address ? v4 : v6).add(a);
+        v4.addAll(v6);
+        return v4;
+    }
 
     private float density() { return getResources().getDisplayMetrics().density; }
 
