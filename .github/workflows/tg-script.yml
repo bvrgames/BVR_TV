@@ -1,0 +1,34 @@
+# В России telegram.org открывается не у всех. Держим копию скрипта мини-приложений у себя на сайте
+# и раз в неделю обновляем её с telegram.org.
+name: Копия скрипта Telegram
+
+on:
+  schedule:
+    - cron: "41 3 * * 1"
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/tg-script.yml
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  vendor:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Скачать и сохранить
+        run: |
+          curl -sSf --max-time 60 -o tg-web-app.js https://telegram.org/js/telegram-web-app.js
+          size=$(wc -c < tg-web-app.js)
+          grep -q "WebApp" tg-web-app.js && [ "$size" -gt 10000 ] || { echo "::error::Скрипт скачался странно ($size байт)"; exit 1; }
+          if git diff --quiet -- tg-web-app.js 2>/dev/null && git ls-files --error-unmatch tg-web-app.js >/dev/null 2>&1; then
+            echo "::notice::Скрипт не изменился"; exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add tg-web-app.js && git commit -q -m "Копия скрипта Telegram для мини-приложений ($size байт)"
+          git pull -q --rebase origin main && git push -q origin HEAD:main
+          echo "::notice::Сохранено, $size байт"
