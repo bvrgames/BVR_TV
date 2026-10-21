@@ -93,32 +93,33 @@ final class Glass extends Drawable {
         if (frosted) rebuildFrosted();
     }
 
+    /*
+     * Кружок-линза (как стеклянные кнопки Telegram/iOS): тело — тёмное стекло, как всё меню,
+     * а по краю — «преломление» цвета состояния (зелёный, красный, серый): яркая цветная кайма,
+     * тонкая светлая кромка и тёмный контур снаружи.
+     */
     private void rebuildFrosted() {
         float cx = r.centerX(), cy = r.centerY(), rad = Math.min(r.width(), r.height()) / 2f;
         int t = tint == 0 ? 0xFF8E8E93 : tint;
-        float s = strength;
+        float s = Math.min(1.25f, 0.85f + 0.2f * strength);
         fShadow.setStyle(Paint.Style.STROKE);
-        fShadow.setStrokeWidth(density * 3);
-        fShadow.setColor(0x38000000);
-        fBody.setShader(new RadialGradient(cx, cy, rad, new int[]{
-                mix(t, 0xFFFFFFFF, 0.08f, Math.min(1f, 0.40f * (0.8f + 0.2f * s))),
-                mix(t, 0xFFFFFFFF, 0.16f, Math.min(1f, 0.48f * (0.8f + 0.2f * s))),
-                mix(t, 0xFFFFFFFF, 0.42f, Math.min(1f, 0.66f * (0.8f + 0.2f * s)))},
-                new float[]{0f, 0.72f, 1f}, Shader.TileMode.CLAMP));
-        fFrost.setShader(new LinearGradient(0, cy - rad, 0, cy + rad * 0.1f,
-                new int[]{a(0xFFFFFF, 0.22f), 0}, null, Shader.TileMode.CLAMP));
-        fInner.setStyle(Paint.Style.STROKE);
-        fInner.setStrokeWidth(density * 2.2f);
-        fInner.setColor(0x26000000);
+        fShadow.setStrokeWidth(density * 1.2f);
+        fShadow.setColor(0x80000000);
+        fBody.setShader(new RadialGradient(cx, cy - rad * 0.15f, rad * 1.1f,
+                new int[]{0xB3121522, 0xAD161A28, 0xA61E2333}, new float[]{0f, 0.6f, 1f}, Shader.TileMode.CLAMP));
+        fFrost.setShader(new RadialGradient(cx, cy, rad, new int[]{0, 0, a(t, 0.5f), mix(t, 0xFFFFFFFF, 0.25f, 1f), a(t, 0.8f)},
+                new float[]{0f, 0.52f, 0.7f, 0.86f, 1f}, Shader.TileMode.CLAMP));
+        fInner.setStyle(Paint.Style.FILL);
+        fInner.setShader(new LinearGradient(0, cy - rad, 0, cy, new int[]{a(0xFFFFFF, 0.12f), 0}, null, Shader.TileMode.CLAMP));
         fRim.setStyle(Paint.Style.STROKE);
-        fRim.setStrokeWidth(density * 1.3f * (s > 1.5f ? 1.3f : 1f));
+        fRim.setStrokeWidth(density * 0.9f);
         fRim.setShader(new LinearGradient(cx - rad, cy - rad, cx + rad, cy + rad,
-                new int[]{a(0xFFFFFF, 0.9f), a(0xFFFFFF, 0.18f), a(0xFFFFFF, 0.10f), a(0xFFFFFF, 0.55f)},
+                new int[]{a(0xFFFFFF, 0.8f), a(0xFFFFFF, 0.12f), a(0xFFFFFF, 0.06f), a(0xFFFFFF, 0.4f)},
                 new float[]{0f, 0.45f, 0.65f, 1f}, Shader.TileMode.CLAMP));
         fSpec.setStyle(Paint.Style.STROKE);
         fSpec.setStrokeCap(Paint.Cap.ROUND);
-        fSpec.setStrokeWidth(density * 1.8f);
-        fSpec.setColor(a(0xFFFFFF, 0.85f));
+        fSpec.setStrokeWidth(density * 1.1f);
+        fSpec.setColor(a(0xFFFFFF, 0.75f));
     }
 
     @Override
@@ -127,14 +128,14 @@ final class Glass extends Drawable {
         int save = alpha < 255 ? c.saveLayerAlpha(new RectF(getBounds()), alpha) : c.save();
         if (radius < 0 && frosted) {
             float cx = r.centerX(), cy = r.centerY(), rad = Math.min(r.width(), r.height()) / 2f;
-            if (glow != 0) { halo.setStrokeWidth(density * 3.5f); c.drawCircle(cx, cy, rad + density * 2f, halo); }
-            else c.drawCircle(cx, cy, rad + density * 1.5f, fShadow);
+            if (glow != 0) { halo.setStrokeWidth(density * 2.2f); halo.setColor(a(glow, 0.85f)); c.drawCircle(cx, cy, rad + density * 2f, halo); }
+            c.drawCircle(cx, cy, rad + density * 0.6f, fShadow);
             c.drawCircle(cx, cy, rad, fBody);
+            c.drawCircle(cx, cy, rad, fInner);
             c.drawCircle(cx, cy, rad, fFrost);
-            c.drawCircle(cx, cy, rad - density * 2.2f, fInner);
             c.drawCircle(cx, cy, rad, fRim);
-            float sr = rad - density * 3.5f;
-            c.drawArc(new RectF(cx - sr, cy - sr, cx + sr, cy + sr), 195, 55, false, fSpec);
+            float sr = rad - density * 2.2f;
+            c.drawArc(new RectF(cx - sr, cy - sr, cx + sr, cy + sr), 200, 50, false, fSpec);
         } else if (radius < 0) {
             float cx = r.centerX(), cy = r.centerY(), rad = Math.min(r.width(), r.height()) / 2f;
             if (glow != 0) c.drawCircle(cx, cy, rad - density * 2, halo);

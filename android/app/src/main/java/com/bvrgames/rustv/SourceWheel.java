@@ -20,7 +20,7 @@ final class SourceWheel extends View {
     static final int UNKNOWN = 0, OK = 1, BAD = 2;
 
     private final float d; // density
-    private static final float BASE = 62; // размер кружка в dp; меньшие рисуем масштабом — без пересчёта градиентов
+    private static final float BASE = 32; // размер кружка в dp; меньшие рисуем масштабом — без пересчёта градиентов
     private int count;
     private int selected;
     private int playing = -1;
@@ -79,12 +79,12 @@ final class SourceWheel extends View {
 
     // Геометрия: d — расстояние от центра в «шагах» колеса
     private float offset(float k) {
-        float a = Math.abs(k), y = a <= 1 ? a * 64 : 64 + Math.min(a - 1, 1.5f) * 44;
+        float a = Math.abs(k), y = a <= 1 ? a * 34 : 34 + Math.min(a - 1, 1.5f) * 25;
         return Math.signum(k) * y * d;
     }
     private float size(float k) {
         float a = Math.abs(k);
-        return (a <= 1 ? 62 - 22 * a : 40 - 12 * Math.min(a - 1, 1f)) * d;
+        return (a <= 1 ? 32 - 11 * a : 21 - 6 * Math.min(a - 1, 1f)) * d;
     }
     private float alpha(float k) {
         float a = Math.abs(k);
@@ -94,7 +94,7 @@ final class SourceWheel extends View {
     }
 
     @Override protected void onMeasure(int w, int h) {
-        setMeasuredDimension(Math.round(84 * d), Math.round(300 * d));
+        setMeasuredDimension(Math.round(52 * d), Math.round(170 * d));
     }
 
     @Override
@@ -124,7 +124,7 @@ final class SourceWheel extends View {
                 g.draw(c);
                 c.restore();
                 // номер
-                num.setTextSize(s * 0.4f);
+                num.setTextSize(s * 0.44f);
                 num.setAlpha(Math.round(al * 255));
                 Paint.FontMetrics fm = num.getFontMetrics();
                 c.drawText(String.valueOf(i + 1), cx, y - (fm.ascent + fm.descent) / 2f, num);

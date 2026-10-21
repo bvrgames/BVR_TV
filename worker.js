@@ -87,7 +87,9 @@ const WELCOME =
   "Привет! Это <b>rus tv</b> — русские каналы прямо в Telegram 📺\n\n" +
   "Нажми «Смотреть ТВ» и выбери канал: Первый, Россия 1, НТВ, СТС, ТНТ, спорт, кино и детские.\n\n" +
   "Если канал не включился сразу, подожди несколько секунд: приложение само найдёт рабочую трансляцию.\n\n" +
-  "Есть и <b>приложение для телевизора</b> на Android TV — с программой передач и управлением с пульта.";
+  "Есть и <b>приложение для телевизора</b> на Android TV — с программой передач и управлением с пульта.\n\n" +
+  "Пользуешься VPN? Видео через него идёт медленнее, а часть каналов не открывается. Включи в VPN «российские сайты напрямую» " +
+  "или смотри через кнопку «🌐 Смотреть без Telegram» — в браузере VPN не нужен.";
 const TV_TEXT =
   "📺 <b>rus tv для телевизора</b>\n\n" +
   "Работает на телевизорах и приставках с Android TV: каналы листаются пультом, видно, что идёт сейчас, обновляется само.\n\n" +
@@ -105,6 +107,7 @@ const MAIN_KB = {
   inline_keyboard: [
     [{ text: "📺 Смотреть ТВ", web_app: { url: APP_URL } }],
     [{ text: "📲 Для телевизора", callback_data: "tv" }, { text: "⭐ Поддержать", callback_data: "donate" }],
+    [{ text: "🌐 Смотреть без Telegram", url: APP_URL }],
   ],
 };
 
@@ -245,12 +248,17 @@ export default {
     const reqUrl = new URL(request.url);
     if (reqUrl.pathname === "/tg" && request.method === "POST") return handleBot(request, env);
     if (reqUrl.pathname === "/apk" && request.method === "POST") return handleApkRequest(request, env);
+    // Страна, из которой зашёл человек (для подсказки про VPN в приложении)
+    if (reqUrl.pathname === "/geo") {
+      return new Response(JSON.stringify({ country: (request.cf && request.cf.country) || "" }),
+        { headers: { ...CORS, "Content-Type": "application/json", "Cache-Control": "no-store" } });
+    }
     // Короткий адрес для Downloader на телевизоре: /tv → свежий APK
     if (reqUrl.pathname === "/tv" || reqUrl.pathname === "/tv/" || reqUrl.pathname === "/tv.apk") {
       return Response.redirect(APK_URL, 302);
     }
     const target = reqUrl.searchParams.get("u");
-    if (!target) return new Response("BVR TV proxy работает (версия 7)", { headers: CORS });
+    if (!target) return new Response("BVR TV proxy работает (версия 8)", { headers: CORS });
 
     let t;
     try { t = new URL(target); } catch (e) {

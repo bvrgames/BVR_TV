@@ -6,6 +6,12 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="theme-color" content="#000000">
 <title>rus tv</title>
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black">
+<meta name="apple-mobile-web-app-title" content="rus tv">
 <!-- Скрипт Telegram берём со своего сайта (в России telegram.org открывается не у всех); если не вышло — с telegram.org -->
 <script async src="tg-web-app.js?v=1" onload="window.tgReady && tgReady()"
   onerror="var s=document.createElement('script');s.src='https://telegram.org/js/telegram-web-app.js';s.onload=function(){window.tgReady&&tgReady()};document.head.appendChild(s)"></script>
@@ -52,6 +58,31 @@
   .live { font-size:11px; font-weight:700; letter-spacing:.04em; color:#fff; background:var(--bad);
           border-radius:4px; padding:2px 5px; display:none; }
   .now.on .live { display:inline-block; }
+  /* Что идёт сейчас: название, полоска, «Далее» */
+  .epgbar { padding:0 20px 10px; border-bottom:.5px solid var(--sep); margin-top:-4px; }
+  .epgbar[hidden] { display:none; }
+  .epgbar .e1 { font-size:15px; color:var(--text); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .epgbar .e1 span { color:var(--muted); margin-right:6px; }
+  .epgbar .ebar { height:3px; border-radius:2px; background:rgba(255,255,255,.15); margin:6px 0 5px; overflow:hidden; }
+  .epgbar .ebar i { display:block; height:100%; width:0; background:var(--accent); border-radius:2px; }
+  .epgbar .e2 { font-size:13px; color:var(--muted); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  html body.fs .player .epgbar { display:none; }
+  /* Во весь экран: при переключении канала — стеклянная плашка с названием и передачей */
+  .fsinfo { position:absolute; left:16px; top:calc(16px + var(--top-inset, 0px)); max-width:min(560px, calc(100% - 32px)); padding:12px 16px; border-radius:18px; z-index:3;
+            background:linear-gradient(180deg, rgba(30,34,52,.78), rgba(11,14,24,.86)); color:#fff; pointer-events:none;
+            box-shadow:0 0 0 .6px rgba(0,0,0,.6), inset 0 .8px 0 rgba(255,255,255,.45), inset 0 -.5px 0 rgba(255,255,255,.12), 0 8px 30px rgba(0,0,0,.4);
+            opacity:0; transform:translateY(8px); transition:opacity .25s, transform .25s; }
+  .fsinfo.show { opacity:1; transform:none; }
+  .fsinfo b { font-size:20px; display:block; }
+  .fsinfo span { font-size:14px; color:#c7c7cc; display:block; margin-top:2px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  html body:not(.fs) .fsinfo { display:none; }
+  /* Подсказки: VPN, «на экран Домой» */
+  .note { margin:14px 16px 0; padding:12px 14px; border-radius:14px; background:var(--row); font-size:14px; line-height:1.4; color:#d1d1d6; }
+  .note[hidden] { display:none; }
+  .note b { color:#fff; }
+  .note .nb { display:flex; gap:8px; margin-top:10px; }
+  .note button { flex:1; border:0; border-radius:10px; padding:9px; font:600 14px -apple-system, system-ui, sans-serif; background:#2c2c2e; color:#fff; cursor:pointer; }
+  .note button.main { background:var(--accent); }
 
   h2 { margin:24px 20px 8px; font-size:13px; font-weight:400; color:var(--muted); text-transform:uppercase; letter-spacing:.02em; }
   .list { margin:0 16px; border-radius:12px; overflow:hidden; background:var(--row); }
@@ -69,12 +100,25 @@
   .sub { font-size:13px; color:var(--muted); margin-top:1px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
   .ch.active .name { color:var(--accent); }
   .ch { flex-wrap:wrap; }
-  .dots { display:flex; flex-wrap:wrap; gap:6px; width:100%; padding-left:76px; margin-top:-2px; }
-  .dot { width:22px; height:22px; border-radius:11px; border:0; padding:0; font-size:11px; font-weight:600;
-         color:var(--muted); background:rgba(120,120,128,.24); }
-  .dot.ok { background:var(--ok); color:#002; }
-  .dot.bad { background:var(--bad); color:#fff; }
-  .dot.cur { box-shadow:0 0 0 2px var(--text); }
+  .dots { display:flex; flex-wrap:wrap; gap:8px; width:100%; padding-left:76px; margin-top:-2px; align-items:center; min-height:30px; }
+  /* Кружок-линза: тёмное стекло, как всё меню, а по краю — «преломление» цвета: зелёный — работает, красный — нет, серый — не проверен */
+  .dot { --c:142,142,147; width:24px; height:24px; border-radius:50%; border:0; padding:0; flex:none;
+         font:700 11px/1 -apple-system, system-ui, sans-serif; color:#fff; text-shadow:0 1px 2px rgba(0,0,0,.6); cursor:pointer;
+         background:
+           linear-gradient(180deg, rgba(255,255,255,.14), rgba(255,255,255,0) 50%),
+           radial-gradient(circle at 50% 48%, rgba(18,21,34,.85) 0 52%, rgba(var(--c),.5) 68%, rgb(var(--c)) 82%, rgba(var(--c),.8) 100%);
+         box-shadow:0 0 0 .6px rgba(0,0,0,.75), inset 0 0 2px 1px rgba(var(--c),.55), inset .5px .8px 0 rgba(255,255,255,.7), inset -.5px -.5px 0 rgba(255,255,255,.25);
+         transition:transform .18s ease, box-shadow .18s ease; }
+  .dot.ok { --c:48,209,88; }
+  .dot.bad { --c:255,69,58; }
+  .dot.cur { transform:scale(1.28); box-shadow:0 0 0 .6px rgba(0,0,0,.75), 0 0 0 2.2px rgba(191,90,242,.9), inset 0 0 2px 1px rgba(var(--c),.55), inset .5px .8px 0 rgba(255,255,255,.7); }
+  /* Телепрограмма в строке канала */
+  .prog { font-size:13px; color:#aeaeb2; margin-top:1px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .prog:empty { display:none; }
+  .ch:not(.active) .prog:not(:empty) + .sub { display:none; }
+  .name .star { color:#ffd60a; margin-right:4px; }
+  .fav { flex:none; border:0; background:none; padding:6px; margin:-6px -6px -6px 0; font-size:20px; line-height:1; color:#48484a; cursor:pointer; }
+  .fav.on { color:#ffd60a; }
   .ch:not(.active) .dots { display:none; }
 
   .tabs { position:sticky; top:calc(var(--top-inset, 0px) + var(--player-h, 0px)); z-index:4; display:flex; gap:8px; overflow-x:auto; padding:10px 16px; background:#000; border-bottom:.5px solid var(--sep);
@@ -126,14 +170,33 @@
 <div class="player" id="player">
   <div class="screen">
     <video id="v" controls playsinline autoplay referrerpolicy="no-referrer" controlslist="nofullscreen noremoteplayback" disablepictureinpicture poster="data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7"></video>
+    <div class="fsinfo" id="fsInfo"><b id="fsName"></b><span id="fsProg"></span></div>
     <button class="fsbtn" id="fsBtn" aria-label="Во весь экран"><svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="#fff" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path class="on" d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/><path class="off" d="M9 4v5H4M15 4v5h5M9 20v-5H4M15 20v-5h5"/></svg></button>
   </div>
   <div class="now" id="nowBox"><span class="live">LIVE</span><span id="now">Выбери канал</span></div>
+  <div class="epgbar" id="epgBar" hidden><div class="e1" id="eNow"></div><div class="ebar"><i id="eProg"></i></div><div class="e2" id="eNext"></div></div>
 </div>
 <div class="side">
 <nav class="tabs" id="tabs"></nav>
-<p class="hint">Нажми на канал. Если источник не отвечает, приложение само попробует следующий — под плеером видно, что происходит. Зелёный кружок — источник работает, красный — нет.</p>
+<div class="note" id="vpnNote" hidden>Похоже, у тебя включён <b>VPN</b> — каналы из России могут грузиться медленнее или не открываться. Открой rus tv в браузере без VPN — там видео идёт напрямую.
+  <div class="nb"><button class="main" id="vpnOpen">Открыть в браузере</button><button id="vpnHide">Не показывать</button></div></div>
+<div class="note" id="homeNote" hidden>Добавь rus tv на экран «Домой» — будет как приложение, без Telegram и VPN: <b>Поделиться</b> → <b>На экран «Домой»</b>.
+  <div class="nb"><button class="main" id="homeInstall" hidden>Установить</button><button id="homeHide">Понятно</button></div></div>
+<p class="hint">Нажми на канал. Если источник не отвечает, приложение само попробует следующий. Кружки под каналом — источники: зелёный работает, красный нет, серый ещё не проверен. ☆ — в избранное. Во весь экран свайп влево/вправо переключает каналы.</p>
 <div id="lists"></div>
+<details class="tvcard" id="webcard" hidden>
+  <summary>
+    <span class="ic"><svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3c2.5 2.7 2.5 15.3 0 18M12 3c-2.5 2.7-2.5 15.3 0 18"/></svg></span>
+    <span class="tt"><div class="t1">Смотреть без Telegram</div><div class="t2">В браузере видео идёт напрямую — без VPN быстрее</div></span>
+    <span class="chev">›</span>
+  </summary>
+  <ol>
+    <li>Нажми <b>«Открыть в браузере»</b> — rus tv откроется в Safari или Chrome.</li>
+    <li>Добавь на экран «Домой»: в Safari — <b>Поделиться</b> → <b>На экран «Домой»</b>, в Chrome — <b>⋮</b> → <b>Установить приложение</b>.</li>
+    <li>Если пользуешься VPN — в браузере его можно не включать.</li>
+  </ol>
+  <div class="btns"><button class="main" id="webOpen">Открыть в браузере</button></div>
+</details>
 <details class="tvcard" id="tvcard">
   <summary>
     <span class="ic"><svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="18" height="12" rx="2"/><path d="M8 21h8M12 17v4"/></svg></span>
@@ -150,7 +213,7 @@
     <button class="main" id="tvApk">Получить APK</button>
   </div>
 </details>
-<footer>версия 29</footer>
+<footer>версия 30</footer>
 </div>
 </div>
 
@@ -161,7 +224,7 @@
   upd(); addEventListener('resize', upd); addEventListener('orientationchange', () => setTimeout(upd, 300));
 })();
 // Telegram держит старую версию в кэше. Сверяем номер версии с сайтом и, если вышла новая, перезагружаемся один раз.
-const APP_VERSION = "29";
+const APP_VERSION = "30";
 (() => {
   fetch('version.txt?t=' + Date.now(), { cache: 'no-store' }).then(r => r.ok ? r.text() : '').then(v => {
     v = (v || '').trim();
@@ -434,6 +497,8 @@ window.tgReady = () => {
   };
   insets();
   try { ['safeAreaChanged', 'contentSafeAreaChanged', 'fullscreenChanged', 'viewportChanged'].forEach(ev => tg.onEvent(ev, insets)); } catch (e) {}
+  window.loadCloudFavs && loadCloudFavs();
+  window.tgExtras && tgExtras();
 };
 if (window.Telegram) tgReady();
 
@@ -471,8 +536,10 @@ CHANNELS.forEach((ch, ci) => {
     (LOGOS[ch.name]
       ? '<div class="badge has-logo' + (LOGOS[ch.name][1] ? ' dark' : '') + '"><i class="lg" style="background-position:0 -' + (LOGOS[ch.name][0] * 28) + 'px"></i></div>'
       : '<div class="badge" style="background:' + ch.color + ';font-size:' + (ch.short.length > 5 ? 9 : ch.short.length > 3 ? 11 : 14) + 'px">' + ch.short + '</div>') +
-    '<div class="info"><div class="name">' + ch.name + '</div><div class="sub" id="sub' + ci + '">Прямой эфир</div></div>' +
+    '<div class="info"><div class="name" id="nm' + ci + '">' + ch.name + '</div><div class="prog" id="prog' + ci + '"></div><div class="sub" id="sub' + ci + '">Прямой эфир</div></div>' +
+    '<button class="fav" id="fav' + ci + '" aria-label="В избранное">☆</button>' +
     '<div class="dots"></div>';
+  row.querySelector('.fav').onclick = (e) => { e.stopPropagation(); toggleFav(ch.name); };
   const dots = row.querySelector('.dots');
   ch.sources.forEach((u, si) => {
     const d = document.createElement('button');
@@ -494,17 +561,54 @@ CHANNELS.forEach((ch, ci) => {
 const TAB_NAMES = { "Основные": "Основные", "Спорт": "Спорт", "Кино и сериалы": "Кино", "Развлечения и музыка": "Развлечения", "Детям": "Детям" };
 const tabsBox = document.getElementById('tabs');
 function showTab(sec) {
-  document.querySelectorAll('.sec').forEach(w => { w.hidden = !(sec === 'Все' || w.dataset.sec === sec); });
+  const favMode = sec === '★';
+  document.querySelectorAll('.ch').forEach((r, ci) => { r.hidden = favMode && !favs.has(CHANNELS[+r.id.slice(2)].name); });
+  document.querySelectorAll('.sec').forEach(w => {
+    w.hidden = favMode ? !w.querySelector('.ch:not([hidden])') : !(sec === 'Все' || w.dataset.sec === sec);
+  });
   document.querySelectorAll('.tab').forEach(b => b.classList.toggle('on', b.dataset.sec === sec));
   store.set('tab', sec);
 }
-['Все', ...Object.keys(sections)].forEach(sec => {
+['★', 'Все', ...Object.keys(sections)].forEach(sec => {
   const b = document.createElement('button');
-  b.className = 'tab'; b.dataset.sec = sec; b.textContent = TAB_NAMES[sec] || sec;
+  b.className = 'tab'; b.dataset.sec = sec; b.textContent = sec === '★' ? '★ Избранное' : (TAB_NAMES[sec] || sec);
+  if (sec === '★') b.id = 'favTab';
   b.onclick = () => { showTab(sec); window.scrollTo({ top: 0 }); };
   tabsBox.appendChild(b);
 });
-showTab(sections[store.get('tab')] || store.get('tab') === 'Все' ? store.get('tab') : 'Основные');
+// Избранное: хранится на устройстве и в облаке Telegram (одно и то же на телефоне и компьютере)
+const favs = new Set((() => { try { return JSON.parse(store.get('fav') || '[]'); } catch (e) { return []; } })());
+const tgApp = () => window.Telegram && window.Telegram.WebApp;
+function renderFavs() {
+  CHANNELS.forEach((ch, ci) => {
+    const on = favs.has(ch.name);
+    const b = document.getElementById('fav' + ci); b.classList.toggle('on', on); b.textContent = on ? '★' : '☆';
+    document.getElementById('nm' + ci).innerHTML = (on ? '<span class="star">★</span>' : '') + ch.name;
+  });
+  document.getElementById('favTab').hidden = favs.size === 0;
+}
+function saveFavs() {
+  const v = JSON.stringify([...favs]);
+  store.set('fav', v);
+  try { const t = tgApp(); t && t.CloudStorage && t.isVersionAtLeast && t.isVersionAtLeast('6.9') && t.CloudStorage.setItem('fav', v); } catch (e) {}
+}
+function toggleFav(name) {
+  favs.has(name) ? favs.delete(name) : favs.add(name);
+  saveFavs(); renderFavs();
+  if (store.get('tab') === '★') showTab(favs.size ? '★' : 'Все');
+}
+window.loadCloudFavs = () => {
+  try {
+    const t = tgApp();
+    if (!(t && t.CloudStorage && t.isVersionAtLeast && t.isVersionAtLeast('6.9'))) return;
+    t.CloudStorage.getItem('fav', (err, v) => {
+      if (err || !v) return;
+      try { JSON.parse(v).forEach(n => favs.add(n)); renderFavs(); store.set('fav', JSON.stringify([...favs])); } catch (e) {}
+    });
+  } catch (e) {}
+};
+renderFavs();
+{ const t0 = store.get('tab'); showTab(t0 === '★' && favs.size ? '★' : sections[t0] || t0 === 'Все' ? t0 : 'Основные'); }
 
 // Очередь источников: сначала тот, что сработал в прошлый раз, потом те, что чаще работали именно у тебя
 let queue = [], round = 1;
@@ -532,7 +636,7 @@ function startChannel(ci) {
   let ci = CHANNELS.findIndex(c => c.name === last);
   if (ci < 0) ci = 0;
   const sec = CHANNELS[ci].sec, tab = store.get('tab');
-  if (tab && tab !== 'Все' && tab !== sec) showTab(sec);
+  if (tab && tab !== 'Все' && tab !== sec && !(tab === '★' && favs.has(CHANNELS[ci].name))) showTab(sec);
   setTimeout(() => startChannel(ci), 50);
 })();
 
@@ -603,6 +707,7 @@ async function play(ci, si, autoNext, tried = 0, retried = false) {
     document.querySelectorAll('.ch').forEach(e => e.classList.remove('active'));
     document.getElementById('ch' + ci).classList.add('active');
     current = ci;
+    if (typeof renderEpg === 'function') try { renderEpg(); } catch (e) {}
   }
   document.querySelectorAll('.dot').forEach(e => e.classList.remove('cur'));
   document.getElementById('d' + ci + '_' + si).classList.add('cur');
@@ -693,6 +798,108 @@ async function play(ci, si, autoNext, tried = 0, retried = false) {
   hls.loadSource(url);
   hls.attachMedia(video);
 }
+
+// ---------- Телепрограмма: что идёт сейчас (под плеером и в списке) ----------
+let EPG = {};
+const hm = (t) => new Date(t * 1000).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' });
+const nowSec = () => Date.now() / 1000;
+function progOf(name) {
+  const list = EPG[name]; if (!list) return null;
+  const t = nowSec();
+  const i = list.findIndex(p => p[0] <= t && t < p[1]);
+  return i < 0 ? null : { cur: list[i], next: list[i + 1] };
+}
+const esc = (x) => String(x).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+function renderEpg() {
+  CHANNELS.forEach((ch, ci) => {
+    const p = progOf(ch.name), el = document.getElementById('prog' + ci);
+    if (el) el.textContent = p ? p.cur[2] : '';
+  });
+  const bar = document.getElementById('epgBar');
+  const p = current >= 0 ? progOf(CHANNELS[current].name) : null;
+  if (!p) { bar.hidden = true; return; }
+  bar.hidden = false;
+  document.getElementById('eNow').innerHTML = '<span>' + hm(p.cur[0]) + '</span>' + esc(p.cur[2]);
+  document.getElementById('eProg').style.width = Math.min(100, (nowSec() - p.cur[0]) * 100 / Math.max(1, p.cur[1] - p.cur[0])) + '%';
+  document.getElementById('eNext').textContent = p.next ? 'Далее ' + hm(p.next[0]) + '  ' + p.next[2] : '';
+}
+function loadEpg() {
+  fetch('https://raw.githubusercontent.com/bvrgames/BVR_TV/epg/epg.json?t=' + Math.floor(Date.now() / 600000))
+    .then(r => r.ok ? r.json() : null).then(j => { if (j && j.ch) { EPG = j.ch; renderEpg(); } }).catch(() => {});
+}
+loadEpg();
+setInterval(loadEpg, 60 * 60 * 1000);
+setInterval(renderEpg, 30 * 1000);
+
+// ---------- Во весь экран: свайпы и стрелки переключают каналы, плашка с названием ----------
+let fsTimer = null;
+function showFsInfo(ci) {
+  const p = progOf(CHANNELS[ci].name);
+  document.getElementById('fsName').textContent = CHANNELS[ci].name;
+  document.getElementById('fsProg').textContent = p ? hm(p.cur[0]) + '  ' + p.cur[2] : 'Прямой эфир';
+  const el = document.getElementById('fsInfo');
+  el.classList.add('show');
+  clearTimeout(fsTimer); fsTimer = setTimeout(() => el.classList.remove('show'), 3500);
+}
+function zap(dir) {
+  const n = CHANNELS.length, from = current >= 0 ? current : 0;
+  const ci = (from + dir + n) % n;
+  startChannel(ci);
+  showFsInfo(ci);
+  try { tgApp() && tgApp().HapticFeedback && tgApp().HapticFeedback.selectionChanged(); } catch (e) {}
+}
+(() => {
+  const scr = document.querySelector('.screen');
+  let sx = 0, sy = 0, st = 0;
+  scr.addEventListener('touchstart', (e) => { const t = e.touches[0]; sx = t.clientX; sy = t.clientY; st = Date.now(); }, { passive: true });
+  scr.addEventListener('touchend', (e) => {
+    if (!document.body.classList.contains('fs')) return;
+    const t = e.changedTouches[0], dx = t.clientX - sx, dy = t.clientY - sy;
+    if (Date.now() - st > 700) return;
+    if (Math.abs(dx) > 60 && Math.abs(dx) > Math.abs(dy) * 1.3) zap(dx < 0 ? 1 : -1);       // влево — следующий
+    else if (Math.abs(dy) > 70 && Math.abs(dy) > Math.abs(dx) * 1.3) zap(dy < 0 ? 1 : -1);  // вверх — следующий
+  }, { passive: true });
+  document.addEventListener('keydown', (e) => {
+    if (!document.body.classList.contains('fs') || e.target.closest('input,textarea')) return;
+    const k = { ArrowRight: 1, ArrowDown: 1, ArrowLeft: -1, ArrowUp: -1 }[e.key];
+    if (k) { e.preventDefault(); zap(k); }
+  });
+})();
+
+// ---------- Без Telegram и без VPN ----------
+const SITE_URL = 'https://bvrgames.github.io/BVR_TV/';
+const openInBrowser = () => { const t = tgApp(); if (t && t.openLink && t.initData) t.openLink(SITE_URL); else location.href = SITE_URL; };
+window.tgExtras = () => {
+  const t = tgApp();
+  if (!(t && t.initData)) return;
+  document.getElementById('webcard').hidden = false;
+  // Подсказка про VPN: русский Telegram, а адрес — не российский
+  const lang = ((t.initDataUnsafe && t.initDataUnsafe.user && t.initDataUnsafe.user.language_code) || '').toLowerCase();
+  if (!lang.startsWith('ru') || store.get('vpnHide') === '1') return;
+  fetch('https://rustv.bvrhockey.workers.dev/geo').then(r => r.json()).then(g => {
+    if (g && g.country && g.country !== 'RU') document.getElementById('vpnNote').hidden = false;
+  }).catch(() => {});
+};
+document.getElementById('webOpen').onclick = openInBrowser;
+document.getElementById('vpnOpen').onclick = openInBrowser;
+document.getElementById('vpnHide').onclick = () => { store.set('vpnHide', '1'); document.getElementById('vpnNote').hidden = true; };
+// В обычном браузере: предложить «на экран Домой» (один раз), на Android — кнопка «Установить»
+(() => {
+  const inTg = () => { const t = tgApp(); return !!(t && t.initData); };
+  const standalone = matchMedia('(display-mode: standalone)').matches || navigator.standalone;
+  const note = document.getElementById('homeNote'), btn = document.getElementById('homeInstall');
+  document.getElementById('homeHide').onclick = () => { store.set('homeHide', '1'); note.hidden = true; };
+  let deferred = null;
+  addEventListener('beforeinstallprompt', (e) => {
+    e.preventDefault(); deferred = e;
+    if (!inTg() && !standalone && store.get('homeHide') !== '1') { btn.hidden = false; note.hidden = false; }
+  });
+  btn.onclick = () => { if (deferred) { deferred.prompt(); deferred = null; } note.hidden = true; };
+  setTimeout(() => {
+    const ios = /iP(hone|ad|od)/.test(navigator.userAgent);
+    if (ios && !inTg() && !standalone && store.get('homeHide') !== '1') note.hidden = false;
+  }, 1500);
+})();
 
 // Карточка «rus tv для телевизора»
 (() => {
