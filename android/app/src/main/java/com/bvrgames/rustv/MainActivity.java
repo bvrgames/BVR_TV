@@ -17,6 +17,8 @@ import android.graphics.drawable.ColorDrawable;
 import android.graphics.drawable.GradientDrawable;
 import android.graphics.drawable.LayerDrawable;
 import android.graphics.drawable.StateListDrawable;
+import android.net.ConnectivityManager;
+import android.net.NetworkCapabilities;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
@@ -46,6 +48,7 @@ import androidx.annotation.OptIn;
 import androidx.media3.common.AudioAttributes;
 import androidx.media3.common.C;
 import androidx.media3.common.MediaItem;
+import androidx.media3.common.Format;
 import androidx.media3.common.PlaybackException;
 import androidx.media3.common.Player;
 import androidx.media3.common.util.UnstableApi;
@@ -53,6 +56,7 @@ import androidx.media3.datasource.okhttp.OkHttpDataSource;
 import androidx.media3.exoplayer.DefaultLoadControl;
 import androidx.media3.exoplayer.DefaultRenderersFactory;
 import androidx.media3.exoplayer.ExoPlayer;
+import androidx.media3.exoplayer.analytics.AnalyticsListener;
 import androidx.media3.exoplayer.hls.HlsMediaSource;
 import androidx.media3.exoplayer.trackselection.DefaultTrackSelector;
 import androidx.media3.exoplayer.trackselection.AdaptiveTrackSelection;
@@ -171,6 +175,8 @@ public class MainActivity extends Activity {
     private final Set<String> probing = new HashSet<>();
     private static final long PROBE_TTL = 2 * 60 * 1000L;
     private long sessionBw;            // скорость, которую плеер замерил в этом сеансе
+    private boolean hdNow;             // сейчас разрешено 1080p
+    private int droppedHd;             // сколько кадров пропущено на 1080p
     private Runnable srcTimer;         // «источник не ответил»
     private int srcTimerFor = -1;
     private long backPressedAt;
@@ -297,8 +303,10 @@ public class MainActivity extends Activity {
         // Ушли с приложения (кнопка «Домой») — освобождаем видеодекодер: слабому телевизору он нужен другим.
         attempt++;
         ui.removeCallbacksAndMessages(null);
-        if (meter != null && sessionBw > 0)
-            prefs.edit().putLong("bw", meter.getBitrateEstimate()).putLong("bw_at", System.currentTimeMillis()).apply();
+        if (meter != null && sessionBw > 0) {
+            String k = bwKey();
+            prefs.edit().putLong(k, meter.getBitrateEstimate()).putLong(k + "_at", System.currentTimeMillis()).apply();
+        }
         if (player != null) { player.release(); player = null; }
         if (splash != null && splash.isPlaying()) splash.stopPlayback();
         if (!splashDone) hideSplash();
@@ -453,6 +461,19 @@ public class MainActivity extends Activity {
         player.setAudioAttributes(new AudioAttributes.Builder().setUsage(C.USAGE_MEDIA)
                 .setContentType(C.AUDIO_CONTENT_TYPE_MOVIE).build(), true);
         if (!isTv) player.setWakeMode(C.WAKE_MODE_NETWORK); // звук не обрывается при выключенном экране
+        // Страховка: если на 1080p устройство пропускает кадры (слабый процессор), возвращаем 720p и запоминаем
+        player.addAnalyticsListener(new AnalyticsListener() {
+            @Override public void onDroppedVideoFrames(EventTime t, int dropped, long elapsedMs) {
+                if (!hdNow || player == null) return;
+                Format f = player.getVideoFormat();
+                if (f == null || f.height <= 720) return;
+                droppedHd += dropped;
+                if (droppedHd >= 60) {
+                    prefs.edit().putBoolean("no1080", true).apply();
+                    applyVideoCap();
+                }
+            }
+        });
         player.addListener(new Player.Listener() {
             @Override public void onIsPlayingChanged(boolean isPlaying) {
                 if (isPlaying) onPlaying();
@@ -493,14 +514,38 @@ public class MainActivity extends Activity {
     /** Свежий замер скорости (бит/с) или 0. В этом сеансе — замер плеера; сохранённый годен на телефоне час, на ТВ сутки. */
     private long freshBw() {
         if (sessionBw > 0) return sessionBw;
-        long at = prefs.getLong("bw_at", 0), ttl = isTv ? 24 * 3600_000L : 3600_000L;
-        return at > 0 && System.currentTimeMillis() - at < ttl ? prefs.getLong("bw", 0) : 0;
+        String k = bwKey();
+        // ТВ стоит в одной сети — помним неделю; на телефоне Wi-Fi помним сутки, мобильный интернет — час
+        long ttl = isTv ? 7 * 24 * 3600_000L : k.equals("bw_cell") ? 3600_000L : 24 * 3600_000L;
+        long at = prefs.getLong(k + "_at", 0);
+        if (at == 0 && k.equals("bw_wifi")) { k = "bw"; at = prefs.getLong("bw_at", 0); } // замер из прошлой версии
+        return at > 0 && System.currentTimeMillis() - at < ttl ? prefs.getLong(k, 0) : 0;
+    }
+
+    /** Скорость запоминаем отдельно для Wi-Fi/кабеля и для мобильного интернета — как у KION. */
+    private String bwKey() {
+        try {
+            ConnectivityManager cm = (ConnectivityManager) getSystemService(CONNECTIVITY_SERVICE);
+            if (cm != null && Build.VERSION.SDK_INT >= 23) {
+                NetworkCapabilities nc = cm.getNetworkCapabilities(cm.getActiveNetwork());
+                if (nc != null && nc.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR)) return "bw_cell";
+            } else if (cm != null) {
+                //noinspection deprecation
+                android.net.NetworkInfo ni = cm.getActiveNetworkInfo();
+                //noinspection deprecation
+                if (ni != null && ni.getType() == ConnectivityManager.TYPE_MOBILE) return "bw_cell";
+            }
+        } catch (Exception ignored) {}
+        return "bw_wifi";
     }
 
     /** 1080p — только при свежем замере от 6 Мбит/с, иначе 720p: слабому ТВ и Wi-Fi 2.4 ГГц так легче. */
     private void applyVideoCap() {
         if (trackSelector == null) return;
-        boolean hd = freshBw() >= 6_000_000L;
+        // устройство уже показало, что 1080p ему тяжело (пропускало кадры), — дальше только 720p
+        boolean hd = !prefs.getBoolean("no1080", false) && freshBw() >= 6_000_000L;
+        hdNow = hd;
+        droppedHd = 0;
         trackSelector.setParameters(trackSelector.buildUponParameters().setMaxVideoSize(hd ? 1920 : 1280, hd ? 1080 : 720));
     }
 

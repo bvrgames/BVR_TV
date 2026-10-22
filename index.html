@@ -228,7 +228,7 @@
     <button class="main" id="tvApk">Получить APK</button>
   </div>
 </details>
-<footer>версия 35</footer>
+<footer>версия 36</footer>
 <button class="devbtn" id="devBtn" hidden>Разработчик</button>
 <div class="dev" id="dev" hidden>
   <div class="top"><h1>Статистика</h1><button class="x" id="devClose">Закрыть</button></div>
@@ -245,7 +245,7 @@
   upd(); addEventListener('resize', upd); addEventListener('orientationchange', () => setTimeout(upd, 300));
 })();
 // Telegram держит старую версию в кэше. Сверяем номер версии с сайтом и, если вышла новая, перезагружаемся один раз.
-const APP_VERSION = "35";
+const APP_VERSION = "36";
 (() => {
   fetch('version.txt?t=' + Date.now(), { cache: 'no-store' }).then(r => r.ok ? r.text() : '').then(v => {
     v = (v || '').trim();
@@ -635,6 +635,11 @@ function score(u, good) {
 const rank = (ch, i) => { const [ok, bad] = scoreOf(ch.sources[i]); return bad * 3 - Math.min(ok, 5) + i * 0.01; };
 const queueNext = (ci, si) => { const i = queue.indexOf(si); return queue.length ? queue[(i + 1) % queue.length] : si + 1; };
 
+// Тип сети: мобильный интернет или Wi-Fi/кабель (на Android браузер это сообщает; если не сообщает — считаем Wi-Fi)
+function bwKey() {
+  try { const c = navigator.connection; if (c && c.type === 'cellular') return 'bwC'; } catch (e) {}
+  return 'bwW';
+}
 // Проверка источников, как на ТВ: параллельно качаем только плейлисты и смотрим, кто отвечает и как быстро.
 // Результат: время ответа в мс; -1 — точно не работает (ошибка от сервера или ответ не плейлист);
 // null — неизвестно (сетевая ошибка или таймаут: на iPhone встроенному плееру CORS не нужен, а fetch без него падает).
@@ -911,9 +916,10 @@ async function play(ci, si, autoNext, tried = 0, retried = false) {
   if (!window.Hls || !Hls.isSupported()) { fail(); return; }
   // Как у YouTube: старт с качества по прошлой скорости интернета, повышаем осторожно, при просадке сразу вниз;
   // больше повторов при секундных обрывах; запас 30 с; не грузим качество больше, чем размер экрана
-  // Замер скорости годен час на телефоне и сутки на остальных устройствах; старый — как будто замера нет
-  const bwTtl = /android|ios/i.test((tgApp() && tgApp().platform) || '') ? 3600e3 : 86400e3;
-  const bw = (Date.now() - (parseInt(store.get('bwAt'), 10) || 0) < bwTtl && parseInt(store.get('bw'), 10)) || 800000;
+  // Скорость помним отдельно для Wi-Fi и мобильного интернета (как KION): Wi-Fi — сутки, мобильный — час
+  const bk = bwKey(), bwTtl = bk === 'bwC' ? 3600e3 : 86400e3;
+  const bw = (Date.now() - (parseInt(store.get(bk + 'At'), 10) || parseInt(store.get(bk === 'bwW' ? 'bwAt' : '-'), 10) || 0) < bwTtl &&
+    (parseInt(store.get(bk), 10) || (bk === 'bwW' && parseInt(store.get('bw'), 10)))) || 800000;
   const retry = (n) => ({ maxNumRetry: n, retryDelayMs: 1000, maxRetryDelayMs: 8000 });
   hls = new Hls({
     lowLatencyMode: false, backBufferLength: 30, maxBufferLength: 30, maxMaxBufferLength: 60,
@@ -934,7 +940,7 @@ async function play(ci, si, autoNext, tried = 0, retried = false) {
   let bwSaved = 0;
   hls.on(Hls.Events.FRAG_LOADED, () => {
     const b = hls && hls.bandwidthEstimate;
-    if (b > 0 && Date.now() - bwSaved > 10000) { bwSaved = Date.now(); store.set('bw', String(Math.round(b))); store.set('bwAt', String(bwSaved)); }
+    if (b > 0 && Date.now() - bwSaved > 10000) { bwSaved = Date.now(); const k = bwKey(); store.set(k, String(Math.round(b))); store.set(k + 'At', String(bwSaved)); }
   });
   hls.on(Hls.Events.MANIFEST_PARSED, start);
   hls.loadSource(url);
