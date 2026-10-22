@@ -157,6 +157,8 @@ public class MainActivity extends Activity {
     private ProgressBar infoProgress;
 
     private boolean splashDone;
+    private boolean preparedHidden;     // канал готовится под заставкой: на паузе и без звука
+    private boolean splashKeyDown;      // во время заставки нажали кнопку пульта именно в приложении
     private int current = -1, currentSrc = 0, pendingZap = -1, pendingSrc = -1;
     private int attempt = 0;
     private boolean played, firstFrame, retried;
@@ -165,6 +167,12 @@ public class MainActivity extends Activity {
     private final List<Integer> order = new ArrayList<>();
     private int pos, round;
     private final Map<String, Long> probeMs = new HashMap<>(); // url → время ответа, -1 = не отвечает
+    private final Map<String, Long> probeAt = new HashMap<>(); // url → когда проверяли: результат годен 2 минуты
+    private final Set<String> probing = new HashSet<>();
+    private static final long PROBE_TTL = 2 * 60 * 1000L;
+    private long sessionBw;            // скорость, которую плеер замерил в этом сеансе
+    private Runnable srcTimer;         // «источник не ответил»
+    private int srcTimerFor = -1;
     private long backPressedAt;
 
     // ---------- запуск ----------
@@ -209,7 +217,7 @@ public class MainActivity extends Activity {
         int ci = indexOf(ch);
         if (ci < 0) return;
         prefs.edit().putString("last", ch).apply();
-        if (splashDone && player != null) startChannel(ci);
+        if (player != null && (splashDone || prepareUnderSplash())) startChannel(ci);
     }
 
     @Override
@@ -223,7 +231,7 @@ public class MainActivity extends Activity {
             keptInBackground = false;
             setVideoEnabled(true);
             if (stoppedByUser) { stoppedByUser = false; startLastOrCurrent(); }
-        } else if (splashDone) startLastOrCurrent();
+        } else if (splashDone || prepareUnderSplash()) startLastOrCurrent(); // под заставкой канал готовится невидимо
         ui.removeCallbacks(epgTimer);
         ui.removeCallbacks(updateTimer);
         ui.post(epgTimer);
@@ -278,7 +286,8 @@ public class MainActivity extends Activity {
         // Ушли с приложения (кнопка «Домой») — освобождаем видеодекодер: слабому телевизору он нужен другим.
         attempt++;
         ui.removeCallbacksAndMessages(null);
-        if (meter != null && meter.getBitrateEstimate() > 0) prefs.edit().putLong("bw", meter.getBitrateEstimate()).apply();
+        if (meter != null && sessionBw > 0)
+            prefs.edit().putLong("bw", meter.getBitrateEstimate()).putLong("bw_at", System.currentTimeMillis()).apply();
         if (player != null) { player.release(); player = null; }
         if (splash != null && splash.isPlaying()) splash.stopPlayback();
         if (!splashDone) hideSplash();
@@ -325,23 +334,83 @@ public class MainActivity extends Activity {
 
     // ---------- заставка ----------
 
+    private final Runnable splashNoStart = this::hideSplash;  // видео заставки так и не подготовилось
+    private final Runnable splashSafety = this::hideSplash;   // заставка пошла, но почему-то не кончается
+    private int splashPos;
+    private long splashMoved;
+
     private void startSplash() {
         splash.setVideoURI(Uri.parse("android.resource://" + getPackageName() + "/" + R.raw.splash));
+        splash.setOnPreparedListener(mp -> {
+            // страховка отсчитывается с момента, когда заставка реально пошла
+            ui.removeCallbacks(splashNoStart);
+            ui.postDelayed(splashSafety, 9000);
+            splashPos = -1;
+            splashMoved = System.currentTimeMillis();
+            ui.postDelayed(splashWatch, 1000);
+        });
         splash.setOnCompletionListener(mp -> hideSplash());
-        splash.setOnErrorListener((mp, w, e) -> { hideSplash(); return true; });
+        splash.setOnErrorListener((mp, w, e) -> { splashTrouble(); return true; });
         splash.start();
-        ui.postDelayed(this::hideSplash, 9000); // страховка, если видео на этом устройстве не запустится
+        ui.postDelayed(splashNoStart, 15000); // не подготовилась за 15 с — не держим чёрный экран
     }
+
+    /** Можно ли готовить канал под заставкой. На слабых ТВ декодера на два видео может не хватить — тогда по очереди. */
+    private boolean prepareUnderSplash() { return !prefs.getBoolean("splash_seq", false); }
+
+    /** Заставка сломалась или застыла, пока под ней готовился канал: запоминаем — дальше сначала заставка, потом канал. */
+    private void splashTrouble() {
+        if (preparedHidden) prefs.edit().putBoolean("splash_seq", true).apply();
+        hideSplash();
+    }
+
+    // Сторож заставки: картинка стоит больше 2 секунд — заставка перестала играть
+    private final Runnable splashWatch = new Runnable() {
+        @Override public void run() {
+            if (splashDone) return;
+            int p = splash.getCurrentPosition();
+            long now = System.currentTimeMillis();
+            if (p != splashPos) { splashPos = p; splashMoved = now; }
+            else if (now - splashMoved > 2000) { splashTrouble(); return; }
+            ui.postDelayed(this, 500);
+        }
+    };
 
     private void hideSplash() {
         if (splashDone) return;
         splashDone = true;
+        ui.removeCallbacks(splashNoStart);
+        ui.removeCallbacks(splashSafety);
+        ui.removeCallbacks(splashWatch);
         try { splash.stopPlayback(); } catch (Exception ignored) {}
+        // видео заставки лежит поверх канала — убираем его сразу, а чёрный фон растворяем, открывая канал
+        splash.setVisibility(View.INVISIBLE);
         splashBox.animate().alpha(0f).setDuration(350).withEndAction(() -> {
             splashBox.setVisibility(View.GONE);
             ((ViewGroup) splashBox.getParent()).removeView(splashBox);
         }).start();
-        if (player != null) startLastOrCurrent();
+        if (player == null) { preparedHidden = false; return; }
+        if (preparedHidden) revealChannel(); else startLastOrCurrent();
+    }
+
+    /** Заставка кончилась — включаем канал, который готовился под ней. Не успел загрузиться — обычная загрузка. */
+    private void revealChannel() {
+        preparedHidden = false;
+        player.setVolume(1f);
+        player.setPlayWhenReady(true);
+        if (played || current < 0) return;
+        if (player.getPlaybackState() != Player.STATE_READY) showInfo(0);
+        // ожидание источника считаем с этого момента: пауза под заставкой — не поломка источника
+        if (srcTimerFor == attempt) armSourceTimer(attempt);
+    }
+
+    /** Под заставкой не хватило декодера на канал: запоминаем для устройства и ждём конца заставки, как раньше. */
+    private void splashSequential() {
+        prefs.edit().putBoolean("splash_seq", true).apply();
+        preparedHidden = false;
+        attempt++;
+        if (srcTimer != null) ui.removeCallbacks(srcTimer);
+        if (player != null) player.stop();
     }
 
     // ---------- плеер ----------
@@ -358,9 +427,12 @@ public class MainActivity extends Activity {
                 .setExceedRendererCapabilitiesIfNecessary(true));
         // Начинаем с умеренного качества — картинка появляется быстрее, дальше плеер сам поднимет качество
         // Стартовое качество — по скорости, которая была у тебя в прошлый раз (а не наугад)
-        long known = prefs.getLong("bw", 800_000L);
+        sessionBw = 0;
+        long known = freshBw();
+        if (known <= 0) known = 800_000L;
         meter = new DefaultBandwidthMeter.Builder(this)
                 .setInitialBitrateEstimate(Math.max(500_000L, Math.min(known * 7 / 10, 4_000_000L))).build();
+        meter.addEventListener(ui, (ms, bytes, bitrate) -> sessionBw = bitrate);
         DefaultLoadControl lc = new DefaultLoadControl.Builder()
                 // старт через 2 с запаса; после рывка ждём 5 с, чтобы не было «рывок-рывок-рывок»
                 .setBufferDurationsMs(30000, 60000, 2000, 5000)
@@ -380,6 +452,12 @@ public class MainActivity extends Activity {
                 if (state == Player.STATE_ENDED) fail(attempt);
             }
             @Override public void onPlayerError(PlaybackException error) {
+                // Под заставкой канал не смог занять декодер — это не поломка источника, а нехватка декодеров на два видео
+                if (preparedHidden && !splashDone && (error.errorCode == PlaybackException.ERROR_CODE_DECODER_INIT_FAILED
+                        || error.errorCode == PlaybackException.ERROR_CODE_DECODING_FAILED)) {
+                    splashSequential();
+                    return;
+                }
                 // Отстали от прямого эфира — это не поломка источника, просто прыгаем к эфиру
                 if (error.errorCode == PlaybackException.ERROR_CODE_BEHIND_LIVE_WINDOW && player != null) {
                     player.seekToDefaultPosition();
@@ -400,6 +478,20 @@ public class MainActivity extends Activity {
     }
 
     private boolean bgAudio() { return prefs.getBoolean("bg_audio", true); }
+
+    /** Свежий замер скорости (бит/с) или 0. В этом сеансе — замер плеера; сохранённый годен на телефоне час, на ТВ сутки. */
+    private long freshBw() {
+        if (sessionBw > 0) return sessionBw;
+        long at = prefs.getLong("bw_at", 0), ttl = isTv ? 24 * 3600_000L : 3600_000L;
+        return at > 0 && System.currentTimeMillis() - at < ttl ? prefs.getLong("bw", 0) : 0;
+    }
+
+    /** 1080p — только при свежем замере от 6 Мбит/с, иначе 720p: слабому ТВ и Wi-Fi 2.4 ГГц так легче. */
+    private void applyVideoCap() {
+        if (trackSelector == null) return;
+        boolean hd = freshBw() >= 6_000_000L;
+        trackSelector.setParameters(trackSelector.buildUponParameters().setMaxVideoSize(hd ? 1920 : 1280, hd ? 1080 : 720));
+    }
 
     /** Кнопка «Стоп» в уведомлении. */
     static void stopFromNotification() {
@@ -439,6 +531,7 @@ public class MainActivity extends Activity {
         if (saved >= ch.sources.size()) saved = 0;
         current = ci;
         round = 1;
+        applyVideoCap();
         buildOrder(ci, saved);
         probe(ci);
         playAt(false);
@@ -481,7 +574,11 @@ public class MainActivity extends Activity {
     private void probe(int ci) {
         if (ci < 0 || ci >= channels.size()) return;
         final Channels.Channel ch = channels.get(ci);
+        long now = System.currentTimeMillis();
         for (final String url : ch.sources) {
+            Long at = probeAt.get(url);
+            if (probing.contains(url) || (at != null && now - at < PROBE_TTL)) continue; // уже проверяется или проверен недавно
+            probing.add(url);
             probePool.execute(() -> {
                 long t0 = System.currentTimeMillis();
                 long ms = -1;
@@ -503,7 +600,9 @@ public class MainActivity extends Activity {
     }
 
     private void onProbe(Channels.Channel ch, String url, long ms) {
+        probing.remove(url);
         probeMs.put(url, ms);
+        probeAt.put(url, System.currentTimeMillis());
         if (current < 0 || current >= channels.size() || channels.get(current) != ch || played) return;
         sortRest(ch, pos + 1);
         updateDots();
@@ -523,19 +622,30 @@ public class MainActivity extends Activity {
                 + (round > 1 ? " · круг " + round : "") + "…", MUTED, false);
 
         updateDots();
+        // Пока идёт заставка, канал готовится невидимо и беззвучно — включится, когда она кончится
+        preparedHidden = !splashDone;
         player.stop();
         player.setMediaSource(source(ch.sources.get(si)));
         player.prepare();
-        player.setPlayWhenReady(true);
+        player.setVolume(preparedHidden ? 0f : 1f);
+        player.setPlayWhenReady(!preparedHidden);
+        armSourceTimer(my);
+    }
 
-        long wait = ch.viaProxy(si) ? 25000 : 15000; // через прокси поток раскачивается дольше
-        ui.postDelayed(() -> {
+    private void armSourceTimer(final int my) {
+        if (srcTimer != null) ui.removeCallbacks(srcTimer);
+        srcTimerFor = my;
+        long wait = channels.get(current).viaProxy(currentSrc) ? 25000 : 15000; // через прокси поток раскачивается дольше
+        srcTimer = () -> {
             if (my != attempt || played) return;
+            // под заставкой канал на паузе нарочно; раз он уже готов — источник в порядке, ждём конца заставки
+            if (!splashDone && player != null && player.getPlaybackState() == Player.STATE_READY) return;
             if (!retried && firstFrame) {
                 setStatus("Источник " + (currentSrc + 1) + " медленный, перезапускаю…", MUTED, false);
                 playAt(true);
             } else fail(my);
-        }, wait);
+        };
+        ui.postDelayed(srcTimer, wait);
     }
 
     private void onPlaying() {
@@ -549,7 +659,17 @@ public class MainActivity extends Activity {
         if (!isTv && bgAudio()) PlaybackService.show(this, ch.name);
         updateDots();
         showInfo(5000);
+        ui.removeCallbacks(probeNeighbors);
+        ui.postDelayed(probeNeighbors, 5000);
     }
+
+    // Канал пошёл — через 5 с тихо проверяем источники соседних каналов (куда переключат пультом или свайпом)
+    private final Runnable probeNeighbors = () -> {
+        if (!played || current < 0 || channels.isEmpty()) return;
+        int n = channels.size();
+        probe((current + n - 1) % n);
+        probe((current + 1) % n);
+    };
 
     private void fail(int my) {
         if (my != attempt || current < 0) return;
@@ -578,7 +698,7 @@ public class MainActivity extends Activity {
             if (player != null) player.stop();
             ui.postDelayed(() -> {
                 if (my != attempt || current != ci) return;
-                for (String u : ch.sources) probeMs.remove(u); // на новом круге проверяем всех заново
+                for (String u : ch.sources) { probeMs.remove(u); probeAt.remove(u); } // на новом круге проверяем всех заново
                 buildOrder(ci, order.isEmpty() ? 0 : order.get(0));
                 probe(ci);
                 playAt(false);
@@ -620,7 +740,9 @@ public class MainActivity extends Activity {
     @Override
     public boolean dispatchKeyEvent(KeyEvent e) {
         if (!splashDone) {
-            if (e.getAction() == KeyEvent.ACTION_UP) hideSplash();
+            // Отпускание кнопки, нажатой ещё до приложения (OK, которым его открыли), заставку не пропускает
+            if (e.getAction() == KeyEvent.ACTION_DOWN && e.getRepeatCount() == 0) splashKeyDown = true;
+            else if (e.getAction() == KeyEvent.ACTION_UP && splashKeyDown) hideSplash();
             return true;
         }
         if (sheet != null) return super.dispatchKeyEvent(e); // окошко канала — обычная навигация по кнопкам
@@ -978,6 +1100,7 @@ public class MainActivity extends Activity {
         splashBox = new FrameLayout(this);
         splashBox.setBackgroundColor(Color.BLACK);
         splash = new VideoView(this);
+        splash.setZOrderMediaOverlay(true); // видео заставки — поверх видео канала, который готовится под ней
         splashBox.addView(splash, new FrameLayout.LayoutParams(-1, -1, Gravity.CENTER));
         root.addView(splashBox, new FrameLayout.LayoutParams(-1, -1));
 
@@ -1518,7 +1641,7 @@ public class MainActivity extends Activity {
                     Collections.swap(order, 0, currentSrc);
                     pos = 0;
                 }
-                if (wasEmpty && splashDone && player != null) startLastOrCurrent();
+                if (wasEmpty && (splashDone || prepareUnderSplash()) && player != null) startLastOrCurrent();
             });
         });
     }

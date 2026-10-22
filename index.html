@@ -39,7 +39,7 @@
   /* Своя кнопка «во весь экран»: встроенная в Telegram на Android не срабатывает */
   .screen { position:relative; }
   .fsbtn { position:absolute; top:10px; right:10px; width:40px; height:40px; border:0; border-radius:20px; padding:0;
-           display:grid; place-items:center; background:rgba(0,0,0,.45); -webkit-backdrop-filter:blur(8px); backdrop-filter:blur(8px); z-index:2; }
+           display:grid; place-items:center; background:rgba(0,0,0,.6); z-index:2; }
   .fsbtn .off { display:none; }
   html body.fs .fsbtn .on { display:none; } html body.fs .fsbtn .off { display:inline; }
   html body.fs { overflow:hidden; }
@@ -204,7 +204,7 @@
     <button class="main" id="tvApk">Получить APK</button>
   </div>
 </details>
-<footer>версия 31</footer>
+<footer>версия 33</footer>
 </div>
 </div>
 
@@ -215,7 +215,7 @@
   upd(); addEventListener('resize', upd); addEventListener('orientationchange', () => setTimeout(upd, 300));
 })();
 // Telegram держит старую версию в кэше. Сверяем номер версии с сайтом и, если вышла новая, перезагружаемся один раз.
-const APP_VERSION = "32";
+const APP_VERSION = "33";
 (() => {
   fetch('version.txt?t=' + Date.now(), { cache: 'no-store' }).then(r => r.ok ? r.text() : '').then(v => {
     v = (v || '').trim();
@@ -604,15 +604,46 @@ function score(u, good) {
 const rank = (ch, i) => { const [ok, bad] = scoreOf(ch.sources[i]); return bad * 3 - Math.min(ok, 5) + i * 0.01; };
 const queueNext = (ci, si) => { const i = queue.indexOf(si); return queue.length ? queue[(i + 1) % queue.length] : si + 1; };
 
+// Проверка источников, как на ТВ: параллельно качаем только плейлисты и смотрим, кто отвечает и как быстро.
+// Результат: время ответа в мс; -1 — точно не работает (ошибка от сервера или ответ не плейлист);
+// null — неизвестно (сетевая ошибка или таймаут: на iPhone встроенному плееру CORS не нужен, а fetch без него падает).
+const PROBE_TTL = 2 * 60 * 1000;  // результат проверки годен 2 минуты
+const probes = {}, probing = {};   // url → { ms, at }; url → идущая проверка
+const probeMs = (u) => { const p = probes[u]; return p && Date.now() - p.at < PROBE_TTL ? p.ms : undefined; };
+function probeUrl(u) {
+  if (probeMs(u) !== undefined) return Promise.resolve(probeMs(u));
+  if (probing[u]) return probing[u];
+  const ctl = window.AbortController ? new AbortController() : null, t0 = Date.now();
+  const tm = setTimeout(() => ctl && ctl.abort(), u.startsWith(PROXY) ? 12000 : 8000);
+  return probing[u] = fetch(u, { cache: 'no-store', signal: ctl ? ctl.signal : undefined })
+    .then(r => r.ok ? r.text().then(t => /^\s*#EXTM3U/.test(t.slice(0, 2048)) ? Date.now() - t0 : -1) : -1)
+    .catch(() => null)
+    .then(ms => { clearTimeout(tm); delete probing[u]; probes[u] = { ms, at: Date.now() }; return ms; });
+}
+// Сначала отвечающие (быстрые раньше), потом непроверенные, в конце мёртвые; внутри — с учётом истории (rank)
+const order = (ch, i) => { const ms = probeMs(ch.sources[i]); return (ms == null ? 6000 : ms < 0 ? 60000 : ms) + rank(ch, i) * 1000; };
+function probeChannel(ci) {
+  const ch = CHANNELS[ci];
+  ch.sources.forEach((u, si) => probeUrl(u).then(ms => {
+    if (ms != null && !(ci === current && si === curSrc && srcState[ci] && srcState[ci][si] === 'ok')) mark(ci, si, ms < 0 ? 'bad' : 'ok');
+    if (ci !== current) return;
+    // ещё не испробованные источники этого круга — по свежим результатам
+    const at = queue.indexOf(curSrc);
+    if (at >= 0) queue = [...queue.slice(0, at + 1), ...queue.slice(at + 1).sort((a, b) => order(ch, a) - order(ch, b))];
+    if (ms != null && ms < 0 && si === curSrc && failNow) failNow(si);
+  }));
+}
+
 function startChannel(ci) {
   const ch = CHANNELS[ci];
-  pickSrc = -1; clearTimeout(pickTimer);
+  pickSrc = -1; clearTimeout(pickTimer); chosen = -1;
   let saved = parseInt(store.get('src' + ci), 10);
   if (!(Number.isInteger(saved) && saved < ch.sources.length)) saved = 0;
-  const rest = ch.sources.map((_, i) => i).filter(i => i !== saved).sort((a, b) => rank(ch, a) - rank(ch, b));
+  const rest = ch.sources.map((_, i) => i).filter(i => i !== saved).sort((a, b) => order(ch, a) - order(ch, b));
   queue = [saved, ...rest];
   round = 1;
   play(ci, saved, true, 0);
+  probeChannel(ci);
 }
 // При открытии сразу включаем канал, который смотрели в прошлый раз (в первый раз — Первый)
 (() => {
@@ -662,6 +693,8 @@ function startChannel(ci) {
 // Состояние источников: '' — не проверен, 'ok' — работает, 'bad' — не отвечает
 const srcState = {};
 let curSrc = 0, pickSrc = -1;
+// chosen — источник, выбранный в колесе вручную: его включаем, даже если проверка считает его мёртвым
+let failNow = null, chosen = -1;
 function mark(ci, si, cls) {
   (srcState[ci] = srcState[ci] || [])[si] = cls || '';
   if (ci === current) renderWheel();
@@ -716,7 +749,7 @@ function choose(si, now) {
     pickSrc = -1;
     if (s0 < 0) return;
     queue = []; for (let i = 0; i < n; i++) queue.push((s0 + i) % n);  // выбранный первым, дальше по кругу
-    round = 1;
+    round = 1; chosen = s0;
     play(ci, s0, true, 0);
   };
   if (now) go(); else pickTimer = setTimeout(go, 650);
@@ -759,7 +792,8 @@ async function play(ci, si, autoNext, tried = 0, retried = false) {
     stop();
     setStatus('<b>' + ch.name + '</b> · все источники пока молчат, новая попытка через ' + pause / 1000 + ' с (круг ' + round + ')');
     document.getElementById('sub' + ci).textContent = 'Ищу рабочий источник…';
-    setTimeout(() => { if (my === attempt && current === ci) play(ci, queue[0] ?? 0, true, 0); }, pause);
+    ch.sources.forEach(u => delete probes[u]);  // на новом круге проверяем всех заново
+    setTimeout(() => { if (my === attempt && current === ci) { play(ci, queue[0] ?? 0, true, 0); probeChannel(ci); } }, pause);
     return;
   }
   si = si % ch.sources.length;
@@ -794,6 +828,12 @@ async function play(ci, si, autoNext, tried = 0, retried = false) {
     store.set('src' + ci, si); store.set('last', ch.name);
     setStatus('<b>' + ch.name + '</b> · идёт, источник ' + (si + 1) + (video.muted ? ' · включи звук' : ''), true);
     document.getElementById('sub' + ci).textContent = 'Идёт · источник ' + (si + 1);
+    // Канал пошёл — через 5 с тихо проверяем источники соседних каналов (куда переключат свайпом или стрелками)
+    setTimeout(() => {
+      if (my !== attempt || current !== ci) return;
+      const n = CHANNELS.length;
+      probeChannel((ci + n - 1) % n); probeChannel((ci + 1) % n);
+    }, 5000);
   };
   const start = () => video.play().catch(() => { video.muted = true; video.play().catch(() => {}); });
 
@@ -808,6 +848,10 @@ async function play(ci, si, autoNext, tried = 0, retried = false) {
     } else fail();
   }, url.startsWith(PROXY) ? 25000 : 15000);
   video.onerror = fail;
+  // Проверка показала, что источник точно не работает, — не ждём таймаут, сразу берём следующий
+  failNow = (s) => { if (s === si && my === attempt && !(tried === 0 && chosen === si)) fail(); };
+  const dead = probeMs(url);
+  if (dead != null && dead < 0 && !(tried === 0 && chosen === si)) { fail(); return; }
   video.ontimeupdate = () => {
     if (my !== attempt) return;
     if (firstT === null) firstT = video.currentTime;
@@ -833,7 +877,9 @@ async function play(ci, si, autoNext, tried = 0, retried = false) {
   if (!window.Hls || !Hls.isSupported()) { fail(); return; }
   // Как у YouTube: старт с качества по прошлой скорости интернета, повышаем осторожно, при просадке сразу вниз;
   // больше повторов при секундных обрывах; запас 30 с; не грузим качество больше, чем размер экрана
-  const bw = parseInt(store.get('bw'), 10) || 800000;
+  // Замер скорости годен час на телефоне и сутки на остальных устройствах; старый — как будто замера нет
+  const bwTtl = /android|ios/i.test((tgApp() && tgApp().platform) || '') ? 3600e3 : 86400e3;
+  const bw = (Date.now() - (parseInt(store.get('bwAt'), 10) || 0) < bwTtl && parseInt(store.get('bw'), 10)) || 800000;
   const retry = (n) => ({ maxNumRetry: n, retryDelayMs: 1000, maxRetryDelayMs: 8000 });
   hls = new Hls({
     lowLatencyMode: false, backBufferLength: 30, maxBufferLength: 30, maxMaxBufferLength: 60,
@@ -854,7 +900,7 @@ async function play(ci, si, autoNext, tried = 0, retried = false) {
   let bwSaved = 0;
   hls.on(Hls.Events.FRAG_LOADED, () => {
     const b = hls && hls.bandwidthEstimate;
-    if (b > 0 && Date.now() - bwSaved > 10000) { bwSaved = Date.now(); store.set('bw', String(Math.round(b))); }
+    if (b > 0 && Date.now() - bwSaved > 10000) { bwSaved = Date.now(); store.set('bw', String(Math.round(b))); store.set('bwAt', String(bwSaved)); }
   });
   hls.on(Hls.Events.MANIFEST_PARSED, start);
   hls.loadSource(url);
