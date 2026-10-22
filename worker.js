@@ -177,7 +177,7 @@ const clip = (x, n) => (x == null ? null : String(x).slice(0, n));
 // sound — звук уведомления на телефонах с APK: "ufc" — звук UFC, иначе обычный звук rus tv (в Telegram свой звук нельзя).
 const PUSHES = [
   { id: "test-owner-1", at: Date.UTC(2026, 9, 22, 9, 50), text: "Тест пушей rus tv ✅ Это видишь только ты.", button: "Смотреть", onlyOwner: true, app: false },
-  { id: "upd-34", at: Date.UTC(2026, 9, 23, 17, 0), text: "rus tv обновился 📺 подправил оптимизацию." },
+  { id: "upd-34", at: Date.UTC(2026, 9, 22, 11, 35), text: "rus tv обновился 📺 подправил оптимизацию." },
   { id: "ufc333-prelims", at: Date.UTC(2026, 9, 24, 15, 50), text: "🥊 Через 10 минут прелимы UFC 333: Волкановски — Евлоев. Смотри в rus tv", button: "Смотреть", sound: "ufc" },
   { id: "ufc333-main", at: Date.UTC(2026, 9, 24, 17, 50), text: "🥊 Через 10 минут главный кард UFC 333: Волкановски — Евлоев. Смотри в rus tv", button: "Смотреть", sound: "ufc" },
 ];
