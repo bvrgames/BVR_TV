@@ -228,7 +228,7 @@
     <button class="main" id="tvApk">Получить APK</button>
   </div>
 </details>
-<footer>версия 36</footer>
+<footer>версия 37</footer>
 <button class="devbtn" id="devBtn" hidden>Разработчик</button>
 <div class="dev" id="dev" hidden>
   <div class="top"><h1>Статистика</h1><button class="x" id="devClose">Закрыть</button></div>
@@ -245,7 +245,7 @@
   upd(); addEventListener('resize', upd); addEventListener('orientationchange', () => setTimeout(upd, 300));
 })();
 // Telegram держит старую версию в кэше. Сверяем номер версии с сайтом и, если вышла новая, перезагружаемся один раз.
-const APP_VERSION = "36";
+const APP_VERSION = "37";
 (() => {
   fetch('version.txt?t=' + Date.now(), { cache: 'no-store' }).then(r => r.ok ? r.text() : '').then(v => {
     v = (v || '').trim();
@@ -352,6 +352,10 @@ const CHANNELS = [
   ]},
   { sec: "Спорт", name: "Матч ТВ", short: "МАТЧ", color: "#e4002b", sources: [
     viaProxy("http://stream.mcquack.net/169/index.m3u8"),
+    viaProxy("http://31.148.5.241/kanal_3/index.m3u8"),
+    viaProxy("http://45.132.87.69:8080/match/index.m3u8"),
+    viaProxy("http://tv.tuva.ru/machtv/index.m3u8"),
+    viaProxy("http://flussonic.linkintel.ru/match/index.m3u8"),
     T24("https://streaming.televizor-24-tochka.ru/live/6.m3u8"),
     "https://streaming.televizor-24-tochka.ru/live/6.m3u8",
     viaProxy("http://bl.video.matchtv.ru/media/playlist/free_d46d0cf1712c0542ec7fd4f0808f600a_hd/17_89756005/1080/e6bef86de8a133cd7b27deb040758a00/4796141934.m3u8"),
