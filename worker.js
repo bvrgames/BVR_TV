@@ -171,6 +171,18 @@ const DEV_ID = 454163382; // @Bikmetov_vr — только ему видна с�
 const EV_KINDS = ["open", "watch", "fail", "launch"]; // что можно прислать на /ev
 const clip = (x, n) => (x == null ? null : String(x).slice(0, n));
 
+// ---------- Пуши: в Telegram (всем, кого бот знает) и уведомлением на телефонах с APK ----------
+// at — время отправки (UTC). Каждый пуш уходит один раз. Опоздали больше чем на 2 часа — не шлём.
+// button — кнопка под сообщением в Telegram, открывает приложение.
+const PUSHES = [
+  { id: "test-owner-1", at: Date.UTC(2026, 9, 22, 9, 50), text: "Тест пушей rus tv ✅ Это видишь только ты.", button: "Смотреть", onlyOwner: true, app: false },
+  { id: "upd-34", at: Date.UTC(2026, 9, 23, 17, 0), text: "rus tv обновился 📺 подправил оптимизацию." },
+  { id: "ufc333-prelims", at: Date.UTC(2026, 9, 24, 15, 50), text: "🥊 Через 10 минут прелимы UFC 333: Волкановски — Евлоев. Смотри в rus tv", button: "Смотреть" },
+  { id: "ufc333-main", at: Date.UTC(2026, 9, 24, 17, 50), text: "🥊 Через 10 минут главный кард UFC 333: Волкановски — Евлоев. Смотри в rus tv", button: "Смотреть" },
+];
+const PUSH_LATE = 2 * 3600 * 1000;
+const PUSH_BATCH = 40; // за один заход (у бесплатного Cloudflare лимит 50 запросов наружу)
+
 export class Stats extends DurableObject {
   constructor(ctx, env) {
     super(ctx, env);
@@ -181,7 +193,9 @@ export class Stats extends DurableObject {
       CREATE TABLE IF NOT EXISTS devices (id TEXT PRIMARY KEY, first_at INTEGER, last_at INTEGER, launches INTEGER DEFAULT 0, country TEXT);
       CREATE TABLE IF NOT EXISTS events (at INTEGER, kind TEXT, uid INTEGER, dev TEXT, ch TEXT, n INTEGER, country TEXT, src TEXT);
       CREATE INDEX IF NOT EXISTS ev_at ON events(at);
-      CREATE INDEX IF NOT EXISTS ev_kind ON events(kind, at);`);
+      CREATE INDEX IF NOT EXISTS ev_kind ON events(kind, at);
+      CREATE TABLE IF NOT EXISTS pushes (id TEXT PRIMARY KEY, last_uid INTEGER DEFAULT 0, sent INTEGER DEFAULT 0, failed INTEGER DEFAULT 0, done INTEGER DEFAULT 0);
+      CREATE TABLE IF NOT EXISTS blocked (id INTEGER PRIMARY KEY);`);
     this.rate = new Map();
   }
 
@@ -217,6 +231,44 @@ export class Stats extends DurableObject {
       now, e.kind, uid, e.dev || null, clip(e.ch, 60), e.n | 0, e.country || null, clip(e.src, 10));
   }
 
+  // Раз в 5 минут (и сразу после каждой порции): отправляем пуши, которым пришло время
+  async tick() {
+    if (this.busy) return; // уже отправляем — второй заход не нужен, иначе сообщения задвоятся
+    this.busy = true;
+    try { await this.sendDue(); } finally { this.busy = false; }
+  }
+
+  async sendDue() {
+    const token = this.env.TELEGRAM_BOT_TOKEN, now = Date.now();
+    if (!token) return;
+    const push = PUSHES.find((p) => p.at <= now && now - p.at < PUSH_LATE &&
+      !this.sql.exec("SELECT done FROM pushes WHERE id = ? AND done = 1", p.id).toArray().length);
+    if (!push) return;
+    this.sql.exec("INSERT OR IGNORE INTO pushes (id) VALUES (?)", push.id);
+    const st = this.sql.exec("SELECT last_uid FROM pushes WHERE id = ?", push.id).one();
+    const ids = push.onlyOwner
+      ? (st.last_uid ? [] : [DEV_ID])
+      : this.sql.exec("SELECT id FROM users WHERE id > ? AND id NOT IN (SELECT id FROM blocked) ORDER BY id LIMIT ?",
+          st.last_uid, PUSH_BATCH).toArray().map((r) => r.id);
+    const markup = push.button ? { inline_keyboard: [[{ text: push.button, web_app: { url: APP_URL } }]] } : undefined;
+    let sent = 0, failed = 0, last = st.last_uid;
+    for (const id of ids) {
+      try {
+        const r = await tg(token, "sendMessage", { chat_id: id, text: push.text, reply_markup: markup });
+        if (r.ok) sent++;
+        else { failed++; if (r.status === 403) this.sql.exec("INSERT OR IGNORE INTO blocked (id) VALUES (?)", id); }
+      } catch (e) { failed++; }
+      last = id;
+    }
+    const done = ids.length < PUSH_BATCH || push.onlyOwner ? 1 : 0;
+    this.sql.exec("UPDATE pushes SET last_uid = ?, sent = sent + ?, failed = failed + ?, done = ? WHERE id = ?",
+      push.onlyOwner ? 1 : last, sent, failed, done, push.id);
+    // не всё отправили или ждёт следующий пуш — продолжаем через 2 секунды
+    if (!done || PUSHES.some((p) => p.id !== push.id && p.at <= now && now - p.at < PUSH_LATE)) await this.ctx.storage.setAlarm(now + 2000);
+  }
+
+  async alarm() { await this.tick(); }
+
   report(dayStart) {
     const all = (q, ...a) => this.sql.exec(q, ...a).toArray();
     const one = (q, ...a) => { const r = all(q, ...a)[0]; return r ? Object.values(r)[0] || 0 : 0; };
@@ -248,6 +300,10 @@ export class Stats extends DurableObject {
     out.donations = all(`SELECT e.at, e.n, u.name, u.username FROM events e LEFT JOIN users u ON u.id = e.uid
       WHERE e.kind = 'donate' ORDER BY e.at DESC LIMIT 20`);
     out.users = all(`SELECT id, name, username, first_at, last_at, opens, starts, apk, country FROM users ORDER BY last_at DESC LIMIT 100`);
+    out.pushes = PUSHES.filter((p) => !p.onlyOwner).map((p) => {
+      const r = all("SELECT sent, failed, done FROM pushes WHERE id = ?", p.id)[0];
+      return { text: p.text, at: p.at, sent: r ? r.sent : 0, failed: r ? r.failed : 0, done: r ? !!r.done : false };
+    });
     out.countries = all(`SELECT COALESCE(country, '?') AS country, COUNT(*) AS n FROM users GROUP BY country ORDER BY n DESC LIMIT 15`);
     return out;
   }
@@ -283,6 +339,14 @@ async function handleEvent(request, env, ctx) {
   } else return json({ ok: false }, 400);
   track(env, ctx, e);
   return json({ ok: true });
+}
+
+// Пуши для телефонов с APK: приложение само ставит уведомления на нужное время
+function handleNews() {
+  const now = Date.now();
+  const list = PUSHES.filter((p) => !p.onlyOwner && p.app !== false && p.at > now - PUSH_LATE)
+    .map((p) => ({ id: p.id, at: p.at, text: p.text }));
+  return new Response(JSON.stringify({ news: list }), { headers: { ...CORS, "Content-Type": "application/json", "Cache-Control": "no-store" } });
 }
 
 // Страница разработчика: данные только для DEV_ID
@@ -378,6 +442,12 @@ async function handleBot(request, env, ctx) {
 }
 
 export default {
+  // Раз в 5 минут Cloudflare будит воркер — проверяем, не пора ли отправить пуш
+  async scheduled(event, env, ctx) {
+    const s = statsStub(env);
+    if (s) ctx.waitUntil(s.tick().catch(() => {}));
+  },
+
   async fetch(request, env, ctx) {
     if (request.method === "OPTIONS") return new Response(null, { headers: CORS });
 
@@ -386,6 +456,7 @@ export default {
     if (reqUrl.pathname === "/apk" && request.method === "POST") return handleApkRequest(request, env, ctx);
     if (reqUrl.pathname === "/ev" && request.method === "POST") return handleEvent(request, env, ctx);
     if (reqUrl.pathname === "/dev" && request.method === "POST") return handleDev(request, env);
+    if (reqUrl.pathname === "/news") return handleNews();
     // Страна, из которой зашёл человек (для подсказки про VPN в приложении)
     if (reqUrl.pathname === "/geo") {
       return new Response(JSON.stringify({ country: (request.cf && request.cf.country) || "" }),

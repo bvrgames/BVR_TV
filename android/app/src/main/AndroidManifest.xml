@@ -9,6 +9,8 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <!-- пуши на телефонах: после перезагрузки заново ставим проверку новостей -->
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
 
     <!-- Ставится и на ТВ, и на планшет/телефон -->
     <uses-feature android:name="android.software.leanback" android:required="false" />
@@ -46,5 +48,13 @@
         <receiver
             android:name=".Reminders"
             android:exported="false" />
+
+        <receiver
+            android:name=".News"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="android.intent.action.BOOT_COMPLETED" />
+            </intent-filter>
+        </receiver>
     </application>
 </manifest>

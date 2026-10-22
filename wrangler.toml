@@ -4,6 +4,10 @@ main = "worker.js"
 compatibility_date = "2026-10-01"
 workers_dev = true
 
+# Раз в 5 минут — проверка, не пора ли отправить пуш
+[triggers]
+crons = ["*/5 * * * *"]
+
 # Статистика для режима разработчика — база SQLite внутри воркера (Durable Object), отдельной настройки не нужно
 [[durable_objects.bindings]]
 name = "STATS"

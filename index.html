@@ -228,7 +228,7 @@
     <button class="main" id="tvApk">Получить APK</button>
   </div>
 </details>
-<footer>версия 34</footer>
+<footer>версия 35</footer>
 <button class="devbtn" id="devBtn" hidden>Разработчик</button>
 <div class="dev" id="dev" hidden>
   <div class="top"><h1>Статистика</h1><button class="x" id="devClose">Закрыть</button></div>
@@ -245,7 +245,7 @@
   upd(); addEventListener('resize', upd); addEventListener('orientationchange', () => setTimeout(upd, 300));
 })();
 // Telegram держит старую версию в кэше. Сверяем номер версии с сайтом и, если вышла новая, перезагружаемся один раз.
-const APP_VERSION = "34";
+const APP_VERSION = "35";
 (() => {
   fetch('version.txt?t=' + Date.now(), { cache: 'no-store' }).then(r => r.ok ? r.text() : '').then(v => {
     v = (v || '').trim();
@@ -1014,6 +1014,8 @@ if (window.Telegram && window.Telegram.WebApp && window.Telegram.WebApp.initData
       '<div class="r"><span class="l">' + esc(c.ch) + '<span class="sub">' + num(c.people) + ' чел. · ' + Math.round(c.tvShare) + '% на ТВ</span></span><span class="m">' + num(c.min) + ' мин</span></div>', 'Пока никто не смотрел');
     h += '<h2>Не работали за 7 дней</h2>' + rows(data.fails, f =>
       '<div class="r"><span class="l">' + esc(f.ch) + '<span class="sub">страна: ' + esc(f.country) + ' · последний раз ' + when(f.last) + '</span></span><span class="m">' + num(f.n) + ' раз</span></div>', 'Все каналы находились');
+    h += '<h2>Пуши</h2>' + rows(data.pushes, q =>
+      '<div class="r"><span class="l">' + esc(q.text) + '<span class="sub">' + when(q.at) + (q.done ? ' · отправлен' : q.sent ? ' · отправляется' : ' · ждёт') + '</span></span><span class="m">' + (q.sent || q.failed ? num(q.sent) + ' ✓' + (q.failed ? ' · ' + num(q.failed) + ' ✕' : '') : '') + '</span></div>', 'Нет пушей');
     h += '<h2>Страны</h2>' + rows(data.countries, c => '<div class="r"><span class="l">' + esc(c.country) + '</span><span class="m">' + num(c.n) + '</span></div>', 'Пока пусто');
     h += '<h2>Донаты</h2>' + rows(data.donations, d =>
       '<div class="r"><span class="l">' + esc(d.name || 'без имени') + (d.username ? ' <span class="m">@' + esc(d.username) + '</span>' : '') + '<span class="sub">' + when(d.at) + '</span></span><span class="m">' + num(d.n) + ' ⭐</span></div>', 'Пока не было');

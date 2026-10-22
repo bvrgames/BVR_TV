@@ -235,7 +235,7 @@ public class MainActivity extends Activity {
         super.onStart();
         hideSystemBars();
         boolean fresh = player == null;
-        if (fresh) { createPlayer(); sendEv("launch", null, 0); }
+        if (fresh) { createPlayer(); sendEv("launch", null, 0); News.start(this); } // пуши на телефоне (на ТВ — ничего)
         if (keptInBackground && !fresh) {
             // вернулись, а звук всё это время играл — просто возвращаем картинку
             keptInBackground = false;
@@ -706,6 +706,8 @@ public class MainActivity extends Activity {
         if (watchFrom == 0) watchFrom = System.currentTimeMillis();
         setStatus("Идёт · источник " + (currentSrc + 1) + " из " + ch.sources.size(), OK, true);
         if (!isTv && bgAudio()) PlaybackService.show(this, ch.name);
+        // Пуши на телефоне: один раз спрашиваем разрешение на уведомления (Android 13+), когда канал уже пошёл
+        if (!isTv && !prefs.getBoolean("news_asked", false)) { prefs.edit().putBoolean("news_asked", true).apply(); askNotifications(); }
         updateDots();
         showInfo(5000);
         ui.removeCallbacks(probeNeighbors);
