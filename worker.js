@@ -1,3 +1,5 @@
+import { DurableObject } from "cloudflare:workers";
+
 // BVR TV — прокси для http-потоков (Cloudflare Worker)
 // Использование: https://<имя-воркера>.workers.dev/?u=<ссылка на поток>
 // Выкладывается автоматически через GitHub Actions (.github/workflows/deploy-worker.yml)
@@ -162,8 +164,142 @@ async function webAppUser(initData, token) {
   try { return JSON.parse(p.get("user") || "null"); } catch (e) { return null; }
 }
 
+// ---------- Режим разработчика: статистика ----------
+// Хранится в базе SQLite внутри самого воркера (Durable Object «Stats»): отдельной настройки в Cloudflare не нужно.
+// Запись статистики никогда не мешает боту и приложению: любая ошибка молча пропускается.
+const DEV_ID = 454163382; // @Bikmetov_vr — только ему видна статистика
+const EV_KINDS = ["open", "watch", "fail", "launch"]; // что можно прислать на /ev
+const clip = (x, n) => (x == null ? null : String(x).slice(0, n));
+
+export class Stats extends DurableObject {
+  constructor(ctx, env) {
+    super(ctx, env);
+    this.sql = ctx.storage.sql;
+    this.sql.exec(`
+      CREATE TABLE IF NOT EXISTS users (id INTEGER PRIMARY KEY, name TEXT, username TEXT, first_at INTEGER, last_at INTEGER,
+        opens INTEGER DEFAULT 0, starts INTEGER DEFAULT 0, apk INTEGER DEFAULT 0, country TEXT);
+      CREATE TABLE IF NOT EXISTS devices (id TEXT PRIMARY KEY, first_at INTEGER, last_at INTEGER, launches INTEGER DEFAULT 0, country TEXT);
+      CREATE TABLE IF NOT EXISTS events (at INTEGER, kind TEXT, uid INTEGER, dev TEXT, ch TEXT, n INTEGER, country TEXT, src TEXT);
+      CREATE INDEX IF NOT EXISTS ev_at ON events(at);
+      CREATE INDEX IF NOT EXISTS ev_kind ON events(kind, at);`);
+    this.rate = new Map();
+  }
+
+  // Не больше 40 событий в минуту от одного человека или устройства
+  allowed(key) {
+    const m = Math.floor(Date.now() / 60000), r = this.rate.get(key);
+    if (!r || r.m !== m) { this.rate.set(key, { m, n: 1 }); if (this.rate.size > 5000) this.rate.clear(); return true; }
+    return ++r.n <= 40;
+  }
+
+  add(e) {
+    const now = Date.now(), key = e.user ? "u" + e.user.id : e.dev ? "d" + e.dev : "";
+    if (!key || !this.allowed(key)) return;
+    let uid = null;
+    if (e.user && e.user.id) {
+      uid = e.user.id;
+      const name = clip([e.user.first_name, e.user.last_name].filter(Boolean).join(" "), 80), un = clip(e.user.username, 40);
+      this.sql.exec(`INSERT INTO users (id, name, username, first_at, last_at, opens, starts, apk, country)
+          VALUES (?, ?, ?, ?, ?, 0, 0, 0, ?)
+        ON CONFLICT(id) DO UPDATE SET name = excluded.name, username = excluded.username, last_at = excluded.last_at,
+          country = COALESCE(excluded.country, users.country)`, uid, name, un, now, now, e.country || null);
+      if (e.kind === "open") this.sql.exec("UPDATE users SET opens = opens + 1 WHERE id = ?", uid);
+      if (e.kind === "start") this.sql.exec("UPDATE users SET starts = starts + 1 WHERE id = ?", uid);
+      if (e.kind === "apk") this.sql.exec("UPDATE users SET apk = apk + 1 WHERE id = ?", uid);
+    }
+    if (e.dev) {
+      this.sql.exec(`INSERT INTO devices (id, first_at, last_at, launches, country) VALUES (?, ?, ?, 0, ?)
+        ON CONFLICT(id) DO UPDATE SET last_at = excluded.last_at, country = COALESCE(excluded.country, devices.country)`,
+        e.dev, now, now, e.country || null);
+      if (e.kind === "launch") this.sql.exec("UPDATE devices SET launches = launches + 1 WHERE id = ?", e.dev);
+    }
+    this.sql.exec("INSERT INTO events (at, kind, uid, dev, ch, n, country, src) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+      now, e.kind, uid, e.dev || null, clip(e.ch, 60), e.n | 0, e.country || null, clip(e.src, 10));
+  }
+
+  report(dayStart) {
+    const all = (q, ...a) => this.sql.exec(q, ...a).toArray();
+    const one = (q, ...a) => { const r = all(q, ...a)[0]; return r ? Object.values(r)[0] || 0 : 0; };
+    const now = Date.now();
+    const periods = { day: dayStart > 0 && dayStart <= now ? dayStart : now - 86400000, week: now - 7 * 86400000, all: 0 };
+    const out = { periods: {} };
+    for (const [k, from] of Object.entries(periods)) {
+      out.periods[k] = {
+        newUsers: one("SELECT COUNT(*) FROM users WHERE first_at >= ?", from),
+        opens: one("SELECT COUNT(*) FROM events WHERE kind = 'open' AND at >= ?", from),
+        openers: one("SELECT COUNT(DISTINCT uid) FROM events WHERE kind = 'open' AND at >= ?", from),
+        starts: one("SELECT COUNT(*) FROM events WHERE kind = 'start' AND at >= ?", from),
+        apk: one("SELECT COUNT(*) FROM events WHERE kind = 'apk' AND at >= ?", from),
+        devices: one("SELECT COUNT(*) FROM devices WHERE first_at >= ?", from),
+        activeDevices: one("SELECT COUNT(DISTINCT dev) FROM events WHERE kind = 'launch' AND at >= ?", from),
+        launches: one("SELECT COUNT(*) FROM events WHERE kind = 'launch' AND at >= ?", from),
+        minutes: Math.round(one("SELECT SUM(n) FROM events WHERE kind = 'watch' AND at >= ?", from) / 60),
+        stars: one("SELECT SUM(n) FROM events WHERE kind = 'donate' AND at >= ?", from),
+        donations: one("SELECT COUNT(*) FROM events WHERE kind = 'donate' AND at >= ?", from),
+      };
+    }
+    out.totalUsers = one("SELECT COUNT(*) FROM users");
+    out.totalDevices = one("SELECT COUNT(*) FROM devices");
+    out.topChannels = all(`SELECT ch, ROUND(SUM(n) / 60.0) AS min, COUNT(DISTINCT COALESCE(uid, dev)) AS people,
+        SUM(CASE WHEN dev IS NOT NULL THEN n ELSE 0 END) * 100 / MAX(SUM(n), 1) AS tvShare
+      FROM events WHERE kind = 'watch' AND at >= ? AND ch IS NOT NULL GROUP BY ch ORDER BY SUM(n) DESC LIMIT 20`, periods.week);
+    out.fails = all(`SELECT ch, COALESCE(country, '?') AS country, COUNT(*) AS n, MAX(at) AS last
+      FROM events WHERE kind = 'fail' AND at >= ? GROUP BY ch, country ORDER BY n DESC LIMIT 30`, periods.week);
+    out.donations = all(`SELECT e.at, e.n, u.name, u.username FROM events e LEFT JOIN users u ON u.id = e.uid
+      WHERE e.kind = 'donate' ORDER BY e.at DESC LIMIT 20`);
+    out.users = all(`SELECT id, name, username, first_at, last_at, opens, starts, apk, country FROM users ORDER BY last_at DESC LIMIT 100`);
+    out.countries = all(`SELECT COALESCE(country, '?') AS country, COUNT(*) AS n FROM users GROUP BY country ORDER BY n DESC LIMIT 15`);
+    return out;
+  }
+}
+
+const statsStub = (env) => (env.STATS ? env.STATS.get(env.STATS.idFromName("main")) : null);
+
+// Записать событие в фоне — ответ боту и приложению не ждёт и не ломается от ошибки
+function track(env, ctx, e) {
+  try {
+    const s = statsStub(env);
+    if (!s) return;
+    const p = s.add(e).catch(() => {});
+    ctx && ctx.waitUntil ? ctx.waitUntil(p) : null;
+  } catch (err) {}
+}
+
+// Событие из приложения: Telegram (проверенный initData) или ТВ-приложение (анонимный id устройства)
+async function handleEvent(request, env, ctx) {
+  const json = (o, st) => new Response(JSON.stringify(o), { status: st || 200, headers: { ...CORS, "Content-Type": "application/json" } });
+  let b = {};
+  try { b = JSON.parse(await request.text()); } catch (e) { return json({ ok: false }, 400); }
+  if (!EV_KINDS.includes(b.kind)) return json({ ok: false }, 400);
+  const country = (request.cf && request.cf.country) || null;
+  const e = { kind: b.kind, ch: b.ch, country, src: b.initData ? "tg" : "tv" };
+  if (b.kind === "watch") e.n = Math.max(0, Math.min(parseInt(b.sec, 10) || 0, 6 * 3600));
+  if (b.initData) {
+    const user = env.TELEGRAM_BOT_TOKEN ? await webAppUser(b.initData, env.TELEGRAM_BOT_TOKEN) : null;
+    if (!user || !user.id) return json({ ok: false }, 403);
+    e.user = user;
+  } else if (typeof b.dev === "string" && /^[a-f0-9]{16,40}$/.test(b.dev)) {
+    e.dev = b.dev;
+  } else return json({ ok: false }, 400);
+  track(env, ctx, e);
+  return json({ ok: true });
+}
+
+// Страница разработчика: данные только для DEV_ID
+async function handleDev(request, env) {
+  const json = (o, st) => new Response(JSON.stringify(o), { status: st || 200, headers: { ...CORS, "Content-Type": "application/json", "Cache-Control": "no-store" } });
+  let b = {};
+  try { b = await request.json(); } catch (e) {}
+  const user = env.TELEGRAM_BOT_TOKEN ? await webAppUser(b.initData, env.TELEGRAM_BOT_TOKEN) : null;
+  if (!user || user.id !== DEV_ID) return json({ ok: false }, 403);
+  const s = statsStub(env);
+  if (!s) return json({ ok: false, error: "no storage" }, 503);
+  try { return json({ ok: true, now: Date.now(), ...(await s.report(+b.dayStart || 0)) }); }
+  catch (e) { return json({ ok: false, error: String(e && e.message || e) }, 500); }
+}
+
 // Кнопка «Получить APK» в приложении → бот присылает файл и инструкцию в чат
-async function handleApkRequest(request, env) {
+async function handleApkRequest(request, env, ctx) {
   const json = (o, st) => new Response(JSON.stringify(o), { status: st || 200, headers: { ...CORS, "Content-Type": "application/json" } });
   const token = env.TELEGRAM_BOT_TOKEN;
   if (!token) return json({ ok: false, error: "no token" }, 503);
@@ -171,6 +307,7 @@ async function handleApkRequest(request, env) {
   try { body = await request.json(); } catch (e) {}
   const user = await webAppUser(body.initData, token);
   if (!user || !user.id) return json({ ok: false, error: "bad initData" }, 403);
+  track(env, ctx, { kind: "apk", user, src: "app", country: (request.cf && request.cf.country) || null });
   await tg(token, "sendMessage", { chat_id: user.id, text: TV_TEXT, parse_mode: "HTML", reply_markup: TV_KB });
   const ok = await sendApk(token, user.id);
   return json({ ok });
@@ -195,7 +332,7 @@ function sendInvoice(token, chat, stars) {
   });
 }
 
-async function handleBot(request, env) {
+async function handleBot(request, env, ctx) {
   const token = env.TELEGRAM_BOT_TOKEN;
   if (!token) return new Response("no token", { status: 503 });
   if (request.headers.get("X-Telegram-Bot-Api-Secret-Token") !== (await hookSecret(token))) {
@@ -214,7 +351,7 @@ async function handleBot(request, env) {
   if (cb && cb.message) {
     const chat = cb.message.chat.id, d = cb.data || "";
     await tg(token, "answerCallbackQuery", { callback_query_id: cb.id });
-    if (d === "tv") await sendTv(token, chat);
+    if (d === "tv") { track(env, ctx, { kind: "apk", user: cb.from, src: "bot" }); await sendTv(token, chat); }
     else if (d === "donate") await sendDonate(token, chat);
     else if (d.startsWith("pay:")) {
       const n = parseInt(d.slice(4), 10);
@@ -226,12 +363,14 @@ async function handleBot(request, env) {
   const msg = upd.message;
   if (msg && msg.chat) {
     if (msg.successful_payment) {
+      track(env, ctx, { kind: "donate", user: msg.from, n: msg.successful_payment.total_amount });
       await tg(token, "sendMessage", { chat_id: msg.chat.id, text: "Спасибо за поддержку! ❤️ Это очень помогает rus tv." });
     } else if (typeof msg.text === "string") {
       const t = msg.text.trim();
       if (t.startsWith("/start")) {
+        if (msg.from) track(env, ctx, { kind: "start", user: msg.from });
         await tg(token, "sendMessage", { chat_id: msg.chat.id, text: WELCOME, parse_mode: "HTML", reply_markup: MAIN_KB });
-      } else if (t.startsWith("/tv")) await sendTv(token, msg.chat.id);
+      } else if (t.startsWith("/tv")) { if (msg.from) track(env, ctx, { kind: "apk", user: msg.from, src: "bot" }); await sendTv(token, msg.chat.id); }
       else if (t.startsWith("/donate")) await sendDonate(token, msg.chat.id);
     }
   }
@@ -239,12 +378,14 @@ async function handleBot(request, env) {
 }
 
 export default {
-  async fetch(request, env) {
+  async fetch(request, env, ctx) {
     if (request.method === "OPTIONS") return new Response(null, { headers: CORS });
 
     const reqUrl = new URL(request.url);
-    if (reqUrl.pathname === "/tg" && request.method === "POST") return handleBot(request, env);
-    if (reqUrl.pathname === "/apk" && request.method === "POST") return handleApkRequest(request, env);
+    if (reqUrl.pathname === "/tg" && request.method === "POST") return handleBot(request, env, ctx);
+    if (reqUrl.pathname === "/apk" && request.method === "POST") return handleApkRequest(request, env, ctx);
+    if (reqUrl.pathname === "/ev" && request.method === "POST") return handleEvent(request, env, ctx);
+    if (reqUrl.pathname === "/dev" && request.method === "POST") return handleDev(request, env);
     // Страна, из которой зашёл человек (для подсказки про VPN в приложении)
     if (reqUrl.pathname === "/geo") {
       return new Response(JSON.stringify({ country: (request.cf && request.cf.country) || "" }),

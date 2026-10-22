@@ -3,3 +3,12 @@ name = "rustv"
 main = "worker.js"
 compatibility_date = "2026-10-01"
 workers_dev = true
+
+# Статистика для режима разработчика — база SQLite внутри воркера (Durable Object), отдельной настройки не нужно
+[[durable_objects.bindings]]
+name = "STATS"
+class_name = "Stats"
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["Stats"]

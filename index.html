@@ -167,6 +167,30 @@
   .tvcard button { flex:1; border:0; border-radius:10px; padding:10px; font-size:15px; font-weight:600; cursor:pointer;
                    background:#2c2c2e; color:var(--text); }
   .tvcard button.main { background:var(--accent); color:#fff; }
+  /* Режим разработчика (виден только владельцу) */
+  .devbtn { display:block; margin:-8px auto 24px; border:0; background:none; color:#636366; font-size:13px; cursor:pointer; }
+  .devbtn[hidden], .dev[hidden] { display:none; }
+  .dev { position:fixed; inset:0; z-index:50; background:#000; overflow-y:auto; -webkit-overflow-scrolling:touch;
+         padding:calc(var(--top-inset, 0px) + 12px) 16px 32px; }
+  .dev .top { display:flex; align-items:center; justify-content:space-between; margin-bottom:12px; }
+  .dev h1 { font-size:22px; margin:0; color:var(--text); }
+  .dev h2 { font-size:13px; font-weight:600; color:var(--muted); text-transform:uppercase; letter-spacing:.3px; margin:22px 4px 8px; }
+  .dev .x { border:0; border-radius:16px; background:#2c2c2e; color:var(--text); padding:7px 14px; font-size:15px; cursor:pointer; }
+  .dev .seg { display:flex; background:#1c1c1e; border-radius:9px; padding:2px; gap:2px; }
+  .dev .seg button { flex:1; border:0; border-radius:7px; padding:7px 0; background:none; color:var(--text); font-size:14px; cursor:pointer; }
+  .dev .seg button.on { background:#3a3a3c; font-weight:600; }
+  .dev .grid { display:grid; grid-template-columns:repeat(2, minmax(0, 1fr)); gap:8px; margin-top:10px; }
+  .dev .tile { background:var(--row); border-radius:12px; padding:10px 12px; min-width:0; }
+  .dev .tile b { display:block; font-size:22px; font-weight:600; color:var(--text); font-variant-numeric:tabular-nums; }
+  .dev .tile span { font-size:12px; color:var(--muted); }
+  .dev .card { background:var(--row); border-radius:12px; overflow:hidden; }
+  .dev .r { display:flex; align-items:center; gap:10px; padding:10px 12px; border-top:.5px solid var(--sep); font-size:14px; color:var(--text); }
+  .dev .r:first-child { border-top:0; }
+  .dev .r .l { flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .dev .r .m { color:var(--muted); font-size:13px; white-space:nowrap; font-variant-numeric:tabular-nums; }
+  .dev .r .sub { display:block; color:var(--muted); font-size:12px; margin-top:2px; overflow:hidden; text-overflow:ellipsis; }
+  .dev .empty { padding:12px; color:var(--muted); font-size:14px; }
+  .dev .note { color:var(--muted); font-size:12px; margin:14px 4px 0; line-height:1.4; }
 </style>
 </head>
 <body>
@@ -204,7 +228,13 @@
     <button class="main" id="tvApk">Получить APK</button>
   </div>
 </details>
-<footer>версия 33</footer>
+<footer>версия 34</footer>
+<button class="devbtn" id="devBtn" hidden>Разработчик</button>
+<div class="dev" id="dev" hidden>
+  <div class="top"><h1>Статистика</h1><button class="x" id="devClose">Закрыть</button></div>
+  <div class="seg" id="devSeg"><button data-p="day" class="on">Сегодня</button><button data-p="week">7 дней</button><button data-p="all">Всё время</button></div>
+  <div id="devBody"><div class="empty">Загружаю…</div></div>
+</div>
 </div>
 </div>
 
@@ -215,7 +245,7 @@
   upd(); addEventListener('resize', upd); addEventListener('orientationchange', () => setTimeout(upd, 300));
 })();
 // Telegram держит старую версию в кэше. Сверяем номер версии с сайтом и, если вышла новая, перезагружаемся один раз.
-const APP_VERSION = "33";
+const APP_VERSION = "34";
 (() => {
   fetch('version.txt?t=' + Date.now(), { cache: 'no-store' }).then(r => r.ok ? r.text() : '').then(v => {
     v = (v || '').trim();
@@ -490,6 +520,7 @@ window.tgReady = () => {
   try { ['safeAreaChanged', 'contentSafeAreaChanged', 'fullscreenChanged', 'viewportChanged'].forEach(ev => tg.onEvent(ev, insets)); } catch (e) {}
   window.loadCloudFavs && loadCloudFavs();
   window.tgExtras && tgExtras();
+  window.statsReady && statsReady();
 };
 if (window.Telegram) tgReady();
 
@@ -636,6 +667,7 @@ function probeChannel(ci) {
 
 function startChannel(ci) {
   const ch = CHANNELS[ci];
+  watchFlush();
   pickSrc = -1; clearTimeout(pickTimer); chosen = -1;
   let saved = parseInt(store.get('src' + ci), 10);
   if (!(Number.isInteger(saved) && saved < ch.sources.length)) saved = 0;
@@ -788,6 +820,7 @@ async function play(ci, si, autoNext, tried = 0, retried = false) {
   // Все источники обошли — не сдаёмся: через паузу начинаем новый круг (молчащий сейчас источник через минуту может заработать)
   if (tried >= ch.sources.length) {
     round++;
+    if (round === 2) sendEv({ kind: 'fail', ch: ch.name });  // ни один источник не пошёл — пишем в статистику
     const pause = Math.min(3000 * (round - 1), 20000), my = ++attempt;
     stop();
     setStatus('<b>' + ch.name + '</b> · все источники пока молчат, новая попытка через ' + pause / 1000 + ' с (круг ' + round + ')');
@@ -826,6 +859,7 @@ async function play(ci, si, autoNext, tried = 0, retried = false) {
     clearTimeout(timer);
     mark(ci, si, 'ok'); score(url, true); round = 1;
     store.set('src' + ci, si); store.set('last', ch.name);
+    watchStart(ch.name);
     setStatus('<b>' + ch.name + '</b> · идёт, источник ' + (si + 1) + (video.muted ? ' · включи звук' : ''), true);
     document.getElementById('sub' + ci).textContent = 'Идёт · источник ' + (si + 1);
     // Канал пошёл — через 5 с тихо проверяем источники соседних каналов (куда переключат свайпом или стрелками)
@@ -906,6 +940,112 @@ async function play(ci, si, autoNext, tried = 0, retried = false) {
   hls.loadSource(url);
   hls.attachMedia(video);
 }
+
+// ---------- Статистика для режима разработчика ----------
+// Отправляется только из Telegram (с проверенной подписью). Если сервер недоступен — молча пропускаем.
+const STATS_BASE = 'https://rustv.bvrhockey.workers.dev';
+const DEV_ID = 454163382;
+function sendEv(o) {
+  try {
+    const t = tgApp();
+    if (!(t && t.initData)) return;
+    const body = JSON.stringify(Object.assign({ initData: t.initData }, o));
+    if (!(navigator.sendBeacon && navigator.sendBeacon(STATS_BASE + '/ev', body)))
+      fetch(STATS_BASE + '/ev', { method: 'POST', body, keepalive: true }).catch(() => {});
+  } catch (e) {}
+}
+// Минуты просмотра: считаем, пока канал реально идёт и приложение на экране
+let watchCh = null, watchFrom = 0;
+function watchStart(name) {
+  if (watchCh !== name) { watchFlush(); watchCh = name; }
+  if (!watchFrom) watchFrom = Date.now();
+}
+function watchFlush(keep) {
+  if (watchCh && watchFrom) {
+    const sec = Math.round((Date.now() - watchFrom) / 1000);
+    if (sec >= 10) sendEv({ kind: 'watch', ch: watchCh, sec });
+  }
+  watchFrom = 0;
+  if (!keep) watchCh = null;
+}
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden) watchFlush(true);
+  else if (watchCh && current >= 0 && CHANNELS[current].name === watchCh && !video.paused) watchFrom = Date.now();
+});
+addEventListener('pagehide', () => watchFlush(true));
+let statsOpened = false;
+window.statsReady = () => {
+  const t = tgApp();
+  if (!(t && t.initData)) return;
+  if (!statsOpened) { statsOpened = true; sendEv({ kind: 'open' }); }
+  const u = t.initDataUnsafe && t.initDataUnsafe.user;
+  if (u && u.id === DEV_ID) document.getElementById('devBtn').hidden = false;
+};
+if (window.Telegram && window.Telegram.WebApp && window.Telegram.WebApp.initData) statsReady();
+
+// Экран «Разработчик»: данные отдаёт сервер только владельцу
+(() => {
+  const box = document.getElementById('dev'), body = document.getElementById('devBody');
+  let data = null, period = 'day';
+  const num = (n) => (n || 0).toLocaleString('ru-RU');
+  const when = (t) => {
+    if (!t) return '';
+    const d = new Date(t), now = new Date();
+    const hm = d.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' });
+    if (d.toDateString() === now.toDateString()) return 'сегодня ' + hm;
+    const y = new Date(now); y.setDate(now.getDate() - 1);
+    if (d.toDateString() === y.toDateString()) return 'вчера ' + hm;
+    return d.toLocaleDateString('ru-RU', { day: 'numeric', month: 'short' }) + ' ' + hm;
+  };
+  const tile = (v, label) => '<div class="tile"><b>' + v + '</b><span>' + label + '</span></div>';
+  const rows = (list, f, empty) => '<div class="card">' + (list && list.length ? list.map(f).join('') : '<div class="empty">' + empty + '</div>') + '</div>';
+  function render() {
+    if (!data) return;
+    const p = data.periods[period] || {};
+    let h = '<div class="grid">' +
+      tile(num(p.newUsers), 'новых в Telegram') + tile(num(p.openers), 'открывали приложение') +
+      tile(num(p.opens), 'открытий всего') + tile(num(p.starts), 'нажали /start') +
+      tile(num(p.apk), 'получили APK') + tile(num(p.activeDevices), 'ТВ-устройств запускали') +
+      tile(num(p.devices), 'новых ТВ-устройств') + tile(num(p.launches), 'запусков APK') +
+      tile(num(p.minutes), 'минут просмотра') + tile(num(p.stars) + ' ⭐', 'донаты (' + num(p.donations) + ')') +
+      '</div>';
+    h += '<p class="note">Всего людей в Telegram: ' + num(data.totalUsers) + ' · ТВ-устройств: ' + num(data.totalDevices) + '. Устройства с APK анонимные — имени там нет.</p>';
+    h += '<h2>Топ каналов за 7 дней</h2>' + rows(data.topChannels, c =>
+      '<div class="r"><span class="l">' + esc(c.ch) + '<span class="sub">' + num(c.people) + ' чел. · ' + Math.round(c.tvShare) + '% на ТВ</span></span><span class="m">' + num(c.min) + ' мин</span></div>', 'Пока никто не смотрел');
+    h += '<h2>Не работали за 7 дней</h2>' + rows(data.fails, f =>
+      '<div class="r"><span class="l">' + esc(f.ch) + '<span class="sub">страна: ' + esc(f.country) + ' · последний раз ' + when(f.last) + '</span></span><span class="m">' + num(f.n) + ' раз</span></div>', 'Все каналы находились');
+    h += '<h2>Страны</h2>' + rows(data.countries, c => '<div class="r"><span class="l">' + esc(c.country) + '</span><span class="m">' + num(c.n) + '</span></div>', 'Пока пусто');
+    h += '<h2>Донаты</h2>' + rows(data.donations, d =>
+      '<div class="r"><span class="l">' + esc(d.name || 'без имени') + (d.username ? ' <span class="m">@' + esc(d.username) + '</span>' : '') + '<span class="sub">' + when(d.at) + '</span></span><span class="m">' + num(d.n) + ' ⭐</span></div>', 'Пока не было');
+    h += '<h2>Последние пользователи</h2>' + rows(data.users, u =>
+      '<div class="r"><span class="l">' + esc(u.name || 'без имени') + (u.username ? ' <span class="m">@' + esc(u.username) + '</span>' : '') +
+      '<span class="sub">впервые ' + when(u.first_at) + ' · последний раз ' + when(u.last_at) + (u.country ? ' · ' + esc(u.country) : '') + '</span></span>' +
+      '<span class="m">' + num(u.opens) + ' откр.' + (u.apk ? ' · APK' : '') + '</span></div>', 'Пока никого');
+    body.innerHTML = h;
+  }
+  function load() {
+    const t = tgApp();
+    body.innerHTML = '<div class="empty">Загружаю…</div>';
+    const d = new Date(); d.setHours(0, 0, 0, 0);
+    fetch(STATS_BASE + '/dev', { method: 'POST', body: JSON.stringify({ initData: t && t.initData, dayStart: d.getTime() }) })
+      .then(r => r.json()).then(j => {
+        if (!j.ok) throw new Error(j.error || 'нет доступа');
+        data = j; render();
+      }).catch(e => { body.innerHTML = '<div class="empty">Не загрузилось: ' + esc(e.message || e) + '</div>'; });
+  }
+  const back = () => { try { const b = tgApp().BackButton; b.offClick(close); if (!document.body.classList.contains('fs')) b.hide(); } catch (e) {} };
+  function close() { box.hidden = true; back(); }
+  document.getElementById('devBtn').onclick = () => {
+    box.hidden = false; box.scrollTop = 0; load();
+    try { const b = tgApp().BackButton; b.show(); b.onClick(close); } catch (e) {}
+  };
+  document.getElementById('devClose').onclick = close;
+  document.querySelectorAll('#devSeg button').forEach(b => b.onclick = () => {
+    period = b.dataset.p;
+    document.querySelectorAll('#devSeg button').forEach(x => x.classList.toggle('on', x === b));
+    render();
+  });
+})();
 
 // ---------- Телепрограмма: что идёт сейчас (под плеером и в списке) ----------
 let EPG = {};

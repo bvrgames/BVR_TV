@@ -174,6 +174,11 @@ public class MainActivity extends Activity {
     private Runnable srcTimer;         // «источник не ответил»
     private int srcTimerFor = -1;
     private long backPressedAt;
+    // статистика для режима разработчика: анонимный id устройства и минуты просмотра
+    private static final String STATS_EV = "https://rustv.bvrhockey.workers.dev/ev";
+    private String devId;
+    private String watchCh;
+    private long watchFrom;
 
     // ---------- запуск ----------
 
@@ -182,6 +187,11 @@ public class MainActivity extends Activity {
         super.onCreate(saved);
         getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON | WindowManager.LayoutParams.FLAG_FULLSCREEN);
         prefs = getSharedPreferences("rustv", MODE_PRIVATE);
+        devId = prefs.getString("dev_id", null);
+        if (devId == null) {
+            devId = java.util.UUID.randomUUID().toString().replace("-", "");
+            prefs.edit().putString("dev_id", devId).apply();
+        }
         UiModeManager um = (UiModeManager) getSystemService(UI_MODE_SERVICE);
         isTv = (um != null && um.getCurrentModeType() == Configuration.UI_MODE_TYPE_TELEVISION)
                 || !getPackageManager().hasSystemFeature(PackageManager.FEATURE_TOUCHSCREEN);
@@ -225,7 +235,7 @@ public class MainActivity extends Activity {
         super.onStart();
         hideSystemBars();
         boolean fresh = player == null;
-        if (fresh) createPlayer();
+        if (fresh) { createPlayer(); sendEv("launch", null, 0); }
         if (keptInBackground && !fresh) {
             // вернулись, а звук всё это время играл — просто возвращаем картинку
             keptInBackground = false;
@@ -282,6 +292,7 @@ public class MainActivity extends Activity {
             return;
         }
         keptInBackground = false;
+        watchFlush();
         PlaybackService.hide(this);
         // Ушли с приложения (кнопка «Домой») — освобождаем видеодекодер: слабому телевизору он нужен другим.
         attempt++;
@@ -493,6 +504,41 @@ public class MainActivity extends Activity {
         trackSelector.setParameters(trackSelector.buildUponParameters().setMaxVideoSize(hd ? 1920 : 1280, hd ? 1080 : 720));
     }
 
+    // ---------- статистика (режим разработчика) ----------
+
+    /** Минуты просмотра текущего канала — на сервер, если смотрели хотя бы 10 секунд. */
+    private void watchFlush() {
+        if (watchCh != null && watchFrom > 0) {
+            long sec = (System.currentTimeMillis() - watchFrom) / 1000;
+            if (sec >= 10) sendEv("watch", watchCh, sec);
+        }
+        watchCh = null;
+        watchFrom = 0;
+    }
+
+    /** Событие на сервер в фоне. Нет сети или сервер молчит — просто пропускаем. */
+    private void sendEv(String kind, String ch, long sec) {
+        if (pool == null || devId == null) return;
+        try {
+            JSONObject o = new JSONObject().put("kind", kind).put("dev", devId);
+            if (ch != null) o.put("ch", ch);
+            if (sec > 0) o.put("sec", sec);
+            final byte[] body = o.toString().getBytes(StandardCharsets.UTF_8);
+            pool.execute(() -> {
+                java.net.HttpURLConnection c = null;
+                try {
+                    c = (java.net.HttpURLConnection) new java.net.URL(STATS_EV).openConnection();
+                    c.setConnectTimeout(8000); c.setReadTimeout(8000);
+                    c.setRequestMethod("POST"); c.setDoOutput(true);
+                    c.setRequestProperty("Content-Type", "application/json");
+                    c.getOutputStream().write(body);
+                    c.getResponseCode();
+                } catch (Exception ignored) {
+                } finally { if (c != null) c.disconnect(); }
+            });
+        } catch (Exception ignored) {}
+    }
+
     /** Кнопка «Стоп» в уведомлении. */
     static void stopFromNotification() {
         MainActivity a = live.get();
@@ -524,6 +570,7 @@ public class MainActivity extends Activity {
     }
 
     private void startChannel(int ci) {
+        watchFlush();
         Channels.Channel ch = channels.get(ci);
         ui.removeCallbacks(pickRun);
         pendingSrc = -1;
@@ -655,6 +702,8 @@ public class MainActivity extends Activity {
         probeMs.put(ch.sources.get(currentSrc), 0L);
         score(ch.sources.get(currentSrc), true);
         prefs.edit().putInt("src:" + ch.name, currentSrc).putString("last", ch.name).apply();
+        if (!ch.name.equals(watchCh)) { watchFlush(); watchCh = ch.name; }
+        if (watchFrom == 0) watchFrom = System.currentTimeMillis();
         setStatus("Идёт · источник " + (currentSrc + 1) + " из " + ch.sources.size(), OK, true);
         if (!isTv && bgAudio()) PlaybackService.show(this, ch.name);
         updateDots();
@@ -690,6 +739,7 @@ public class MainActivity extends Activity {
         pos++;
         if (pos >= order.size()) {
             round++;
+            if (round == 2) sendEv("fail", ch.name, 0); // ни один источник не пошёл — в статистику
             long pause = Math.min(3000L * (round - 1), 20000L);
             setStatus("Все источники пока молчат. Новая попытка через " + (pause / 1000) + " с (круг " + round + ")", BAD, false);
             showInfo(0);
