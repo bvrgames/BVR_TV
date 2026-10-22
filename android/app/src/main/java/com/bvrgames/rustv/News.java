@@ -12,6 +12,8 @@ import android.content.Intent;
 import android.content.SharedPreferences;
 import android.content.pm.PackageManager;
 import android.content.res.Configuration;
+import android.media.AudioAttributes;
+import android.net.Uri;
 import android.os.Build;
 
 import org.json.JSONArray;
@@ -35,7 +37,7 @@ public class News extends BroadcastReceiver {
     private static final String ACTION_SHOW = "com.bvrgames.rustv.NEWS_SHOW";
     private static final String EXTRA_ID = "news_id";
     private static final String EXTRA_TEXT = "news_text";
-    private static final String CHANNEL = "news";
+    private static final String EXTRA_SOUND = "news_sound";
     private static final long LATE = 30 * 60 * 1000L; // опоздали больше чем на 30 минут — уже не показываем
 
     private static SharedPreferences prefs(Context c) { return c.getSharedPreferences("rustv", Context.MODE_PRIVATE); }
@@ -80,10 +82,10 @@ public class News extends BroadcastReceiver {
             long now = System.currentTimeMillis();
             for (int i = 0; i < list.length(); i++) {
                 JSONObject o = list.getJSONObject(i);
-                String id = o.getString("id"), text = o.getString("text");
+                String id = o.getString("id"), text = o.getString("text"), sound = o.optString("sound", "");
                 long at = o.getLong("at");
                 if (done.contains(id) || at < now - LATE) continue;
-                schedule(c, id, text, Math.max(at, now + 3000));
+                schedule(c, id, text, sound, Math.max(at, now + 3000));
                 done.add(id);
             }
             prefs(c).edit().putStringSet("news_set", done).apply();
@@ -93,10 +95,10 @@ public class News extends BroadcastReceiver {
         }
     }
 
-    private static void schedule(Context c, String id, String text, long at) {
+    private static void schedule(Context c, String id, String text, String sound, long at) {
         AlarmManager am = (AlarmManager) c.getSystemService(Context.ALARM_SERVICE);
         if (am == null) return;
-        Intent i = new Intent(c, News.class).setAction(ACTION_SHOW).putExtra(EXTRA_ID, id).putExtra(EXTRA_TEXT, text);
+        Intent i = new Intent(c, News.class).setAction(ACTION_SHOW).putExtra(EXTRA_ID, id).putExtra(EXTRA_TEXT, text).putExtra(EXTRA_SOUND, sound);
         PendingIntent pi = PendingIntent.getBroadcast(c, id.hashCode(), i, flags());
         try {
             if (Build.VERSION.SDK_INT >= 31 && !am.canScheduleExactAlarms()) am.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, at, pi);
@@ -128,21 +130,30 @@ public class News extends BroadcastReceiver {
             Set<String> shown = new HashSet<>(prefs(c).getStringSet("news_shown", new HashSet<>()));
             if (!shown.add(id)) return; // уже показывали
             prefs(c).edit().putStringSet("news_shown", shown).apply();
-            show(c, id, text);
+            show(c, id, text, i.getStringExtra(EXTRA_SOUND));
         }
     }
 
-    private static void show(Context c, String id, String text) {
+    private static void show(Context c, String id, String text, String sound) {
         NotificationManager nm = (NotificationManager) c.getSystemService(Context.NOTIFICATION_SERVICE);
         if (nm == null) return;
+        // Свой звук: у Android он закреплён за категорией уведомлений, поэтому у каждого звука своя категория
+        boolean ufc = "ufc".equals(sound);
+        String channel = ufc ? "news_ufc" : "news_rustv";
+        Uri uri = Uri.parse("android.resource://" + c.getPackageName() + "/" + (ufc ? R.raw.push_ufc : R.raw.push_rustv));
         Notification.Builder b;
         if (Build.VERSION.SDK_INT >= 26) {
-            if (nm.getNotificationChannel(CHANNEL) == null)
-                nm.createNotificationChannel(new NotificationChannel(CHANNEL, "Новости rus tv", NotificationManager.IMPORTANCE_HIGH));
-            b = new Notification.Builder(c, CHANNEL);
+            if (nm.getNotificationChannel(channel) == null) {
+                NotificationChannel ch = new NotificationChannel(channel, ufc ? "UFC и спорт" : "Новости rus tv", NotificationManager.IMPORTANCE_HIGH);
+                ch.setSound(uri, new AudioAttributes.Builder().setUsage(AudioAttributes.USAGE_NOTIFICATION)
+                        .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION).build());
+                nm.createNotificationChannel(ch);
+            }
+            b = new Notification.Builder(c, channel);
         } else {
             //noinspection deprecation
-            b = new Notification.Builder(c).setPriority(Notification.PRIORITY_HIGH).setDefaults(Notification.DEFAULT_ALL);
+            b = new Notification.Builder(c).setPriority(Notification.PRIORITY_HIGH)
+                    .setDefaults(Notification.DEFAULT_VIBRATE | Notification.DEFAULT_LIGHTS).setSound(uri);
         }
         PendingIntent open = PendingIntent.getActivity(c, id.hashCode(),
                 new Intent(c, MainActivity.class).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_SINGLE_TOP), flags());

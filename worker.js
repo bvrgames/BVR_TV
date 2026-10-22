@@ -174,11 +174,12 @@ const clip = (x, n) => (x == null ? null : String(x).slice(0, n));
 // ---------- Пуши: в Telegram (всем, кого бот знает) и уведомлением на телефонах с APK ----------
 // at — время отправки (UTC). Каждый пуш уходит один раз. Опоздали больше чем на 2 часа — не шлём.
 // button — кнопка под сообщением в Telegram, открывает приложение.
+// sound — звук уведомления на телефонах с APK: "ufc" — звук UFC, иначе обычный звук rus tv (в Telegram свой звук нельзя).
 const PUSHES = [
   { id: "test-owner-1", at: Date.UTC(2026, 9, 22, 9, 50), text: "Тест пушей rus tv ✅ Это видишь только ты.", button: "Смотреть", onlyOwner: true, app: false },
   { id: "upd-34", at: Date.UTC(2026, 9, 23, 17, 0), text: "rus tv обновился 📺 подправил оптимизацию." },
-  { id: "ufc333-prelims", at: Date.UTC(2026, 9, 24, 15, 50), text: "🥊 Через 10 минут прелимы UFC 333: Волкановски — Евлоев. Смотри в rus tv", button: "Смотреть" },
-  { id: "ufc333-main", at: Date.UTC(2026, 9, 24, 17, 50), text: "🥊 Через 10 минут главный кард UFC 333: Волкановски — Евлоев. Смотри в rus tv", button: "Смотреть" },
+  { id: "ufc333-prelims", at: Date.UTC(2026, 9, 24, 15, 50), text: "🥊 Через 10 минут прелимы UFC 333: Волкановски — Евлоев. Смотри в rus tv", button: "Смотреть", sound: "ufc" },
+  { id: "ufc333-main", at: Date.UTC(2026, 9, 24, 17, 50), text: "🥊 Через 10 минут главный кард UFC 333: Волкановски — Евлоев. Смотри в rus tv", button: "Смотреть", sound: "ufc" },
 ];
 const PUSH_LATE = 2 * 3600 * 1000;
 const PUSH_BATCH = 40; // за один заход (у бесплатного Cloudflare лимит 50 запросов наружу)
@@ -345,7 +346,7 @@ async function handleEvent(request, env, ctx) {
 function handleNews() {
   const now = Date.now();
   const list = PUSHES.filter((p) => !p.onlyOwner && p.app !== false && p.at > now - PUSH_LATE)
-    .map((p) => ({ id: p.id, at: p.at, text: p.text }));
+    .map((p) => ({ id: p.id, at: p.at, text: p.text, sound: p.sound || "" }));
   return new Response(JSON.stringify({ news: list }), { headers: { ...CORS, "Content-Type": "application/json", "Cache-Control": "no-store" } });
 }
 
