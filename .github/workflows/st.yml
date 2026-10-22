@@ -9,10 +9,11 @@ jobs:
       - run: |
           if [ -d frames ]; then exit 0; fi
           mkdir frames
+          which ffmpeg || (sudo apt-get update -qq && sudo apt-get install -y -qq ffmpeg >/dev/null)
           UA="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/144.0.0.0 Safari/537.36"
           i=0
           for u in http://stream.mcquack.net/169/index.m3u8 http://flussonic.linkintel.ru/match/index.m3u8 http://45.132.87.69:8080/match/index.m3u8 http://tv.tuva.ru/machtv/index.m3u8 http://31.148.5.241/kanal_3/index.m3u8; do
-            i=$((i+1)); timeout 40 ffmpeg -loglevel error -user_agent "$UA" -i "$u" -ss 3 -frames:v 1 -vf scale=480:-2 frames/$i.jpg || echo "$i fail" >> frames/log.txt
+            i=$((i+1)); timeout 40 ffmpeg -loglevel error -user_agent "$UA" -i "$u" -ss 3 -frames:v 1 -vf scale=480:-2 frames/$i.jpg 2>> frames/log.txt || echo "$i fail" >> frames/log.txt
           done
           git config user.name "github-actions[bot]"; git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add frames && git commit -qm "кадры" && git push -q
