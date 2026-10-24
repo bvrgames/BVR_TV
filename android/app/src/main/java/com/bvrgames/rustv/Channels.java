@@ -31,7 +31,8 @@ public final class Channels {
     private static final Pattern ITEM = Pattern.compile(
             "(\\w+)\\s*\\(\\s*\"([^\"]*)\"\\s*(?:,\\s*\"([^\"]*)\"\\s*)?\\)|\"([^\"]*)\"|'([^']*)'");
     private static final Pattern LOGO = Pattern.compile("\"([^\"]+)\"\\s*:\\s*\\[\\s*(\\d+)\\s*,\\s*(\\d+)\\s*\\]");
-    private static final Pattern HEX = Pattern.compile("#([0-9a-fA-F]{6}|[0-9a-fA-F]{3})\\b");
+    private static final Pattern IP_HOST = Pattern.compile("^https?://\\d{1,3}(\\.\\d{1,3}){3}(:\\d+)?/");
+    private static final Pattern HEX =Pattern.compile("#([0-9a-fA-F]{6}|[0-9a-fA-F]{3})\\b");
 
     private Channels() {}
 
@@ -102,6 +103,9 @@ public final class Channels {
                     ref = helpers.get(fn);
                     if (ref == null) continue; // неизвестная функция — пропускаем ссылку
                 }
+                // Cloudflare не пускает воркер на серверы с голым IP вместо имени (ошибка 1003),
+                // поэтому такие ссылки в приложении открываем напрямую — APK умеет http сам
+                if (IP_HOST.matcher(u).find()) { ch.sources.add(u); continue; }
                 ch.sources.add(proxy + encode(u) + (ref != null && !ref.isEmpty() ? "&ref=" + encode(ref) : ""));
             } else {
                 String u = it.group(4) != null ? it.group(4) : it.group(5);
